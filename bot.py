@@ -1,5 +1,4 @@
-#BOT_TOKEN  7554833400:AAEQzzpJESp_FNqd-nPLZh1QNlUoF9_bGMU
-#GITHUB
+#BOT_TOKEN  7554833400:AAEQzzpJESp_FNqd-nPLZh1QNlUoF9_bGMU #GITHUB TOKEN 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
 import logging
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
@@ -20,7 +19,7 @@ from io import StringIO
 # === CONFIGURAZIONE ===
 DATABASE_NAME = 'interventi_vvf.db'
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]  # Modifica con gli ID admin
+ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]
 
 # Configurazione backup GitHub
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
@@ -105,7 +104,9 @@ def init_db():
     vigili_iniziali = [
         ('Mario', 'Rossi', 'CSV', 'III', 1, 0, 1, 0),
         ('Luca', 'Bianchi', 'VV', 'II', 0, 1, 0, 1),
-        ('Giuseppe', 'Verdi', 'CSV', 'IIIE', 1, 1, 0, 0)
+        ('Giuseppe', 'Verdi', 'CSV', 'IIIE', 1, 1, 0, 0),
+        ('Andrea', 'Neri', 'VV', 'I', 0, 0, 1, 0),
+        ('Paolo', 'Gialli', 'CSV', 'II', 1, 0, 0, 1)
     ]
     for nome, cognome, qualifica, grado, nautica, saf, tpss, atp in vigili_iniziali:
         c.execute('''INSERT OR IGNORE INTO vigili 
@@ -120,7 +121,6 @@ init_db()
 
 # === SISTEMA DI EMERGENZA ===
 def emergency_recreate_database():
-    """Ricrea le tabelle se non esistono"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     try:
@@ -135,7 +135,6 @@ def emergency_recreate_database():
     conn.close()
 
 def check_database_integrity():
-    """Verifica che il database sia integro"""
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         c = conn.cursor()
@@ -183,7 +182,6 @@ def approva_utente(user_id):
 
 # === FUNZIONI INTERVENTI ===
 def get_prossimo_numero_erba():
-    """Calcola il prossimo numero progressivo Erba"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute("SELECT MAX(numero_erba) FROM interventi")
@@ -192,7 +190,6 @@ def get_prossimo_numero_erba():
     return (result or 0) + 1
 
 def get_ultimi_interventi_attivi():
-    """Restituisce gli ultimi 5 interventi attivi (senza rientro)"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT id, rapporto_como, progressivo_como, numero_erba, data_uscita, indirizzo
@@ -204,7 +201,6 @@ def get_ultimi_interventi_attivi():
     return result
 
 def get_interventi_per_rapporto(rapporto, anno):
-    """Cerca interventi per rapporto Como e anno"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT * FROM interventi 
@@ -215,7 +211,6 @@ def get_interventi_per_rapporto(rapporto, anno):
     return result
 
 def get_progressivo_per_rapporto(rapporto):
-    """Calcola il prossimo progressivo per un rapporto Como"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT progressivo_como FROM interventi 
@@ -226,18 +221,13 @@ def get_progressivo_per_rapporto(rapporto):
     
     if result:
         ultimo_prog = result[0]
-        if ultimo_prog.isdigit():
+        try:
             return str(int(ultimo_prog) + 1).zfill(2)
-        else:
-            # Se è già in formato progressivo (02, 03, etc.)
-            try:
-                return str(int(ultimo_prog) + 1).zfill(2)
-            except:
-                return "02"
+        except:
+            return "02"
     return "01"
 
 def inserisci_intervento(dati):
-    """Inserisce un nuovo intervento nel database"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     
@@ -253,7 +243,6 @@ def inserisci_intervento(dati):
         
         intervento_id = c.lastrowid
         
-        # Inserisci partecipanti
         for vigile_id in dati.get('partecipanti', []):
             c.execute('''INSERT INTO partecipanti (intervento_id, vigile_id) VALUES (?, ?)''',
                       (intervento_id, vigile_id))
@@ -267,7 +256,6 @@ def inserisci_intervento(dati):
         conn.close()
 
 def get_ultimi_interventi(limite=10):
-    """Restituisce gli ultimi interventi"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT i.*, 
@@ -282,7 +270,6 @@ def get_ultimi_interventi(limite=10):
     return result
 
 def get_statistiche_anno(corrente=True):
-    """Restituisce statistiche annuali"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     
@@ -296,7 +283,6 @@ def get_statistiche_anno(corrente=True):
     
     totale = c.fetchone()[0]
     
-    # Statistiche per tipologia
     if corrente:
         c.execute('''SELECT tipologia, COUNT(*) 
                      FROM interventi 
@@ -307,7 +293,6 @@ def get_statistiche_anno(corrente=True):
     
     tipologie = c.fetchall()
     
-    # Statistiche mensili
     if corrente:
         c.execute('''SELECT strftime('%m', data_uscita) as mese, COUNT(*)
                      FROM interventi 
@@ -329,7 +314,6 @@ def get_statistiche_anno(corrente=True):
 
 # === FUNZIONI VIGILI E MEZZI ===
 def get_vigili_attivi():
-    """Restituisce tutti i vigili attivi"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT id, nome, cognome, qualifica FROM vigili WHERE attivo = 1 ORDER BY cognome, nome''')
@@ -338,7 +322,6 @@ def get_vigili_attivi():
     return result
 
 def get_vigile_by_id(vigile_id):
-    """Restituisce un vigile per ID"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT * FROM vigili WHERE id = ?''', (vigile_id,))
@@ -347,7 +330,6 @@ def get_vigile_by_id(vigile_id):
     return result
 
 def get_mezzi_attivi():
-    """Restituisce tutti i mezzi attivi"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT targa, tipo FROM mezzi WHERE attivo = 1 ORDER BY tipo''')
@@ -355,10 +337,25 @@ def get_mezzi_attivi():
     conn.close()
     return result
 
+def get_tutti_vigili():
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT * FROM vigili ORDER BY cognome, nome''')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+def aggiorna_vigile(vigile_id, campo, valore):
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute(f"UPDATE vigili SET {campo} = ? WHERE id = ?", (valore, vigile_id))
+    conn.commit()
+    conn.close()
+
 # === SISTEMA BACKUP GITHUB ===
 def backup_database_to_gist():
-    """Salva il database su GitHub Gist"""
     if not GITHUB_TOKEN:
+        print("❌ Token GitHub non configurato - backup disabilitato")
         return False
     
     try:
@@ -397,19 +394,26 @@ def backup_database_to_gist():
             response = requests.post(url, headers=headers, json=data)
         
         if response.status_code in [200, 201]:
+            result = response.json()
+            print(f"✅ Backup su Gist completato: {result['html_url']}")
+            
             if not GIST_ID:
                 with open('gist_id.txt', 'w') as f:
-                    f.write(response.json()['id'])
+                    f.write(result['id'])
+                print(f"📝 Nuovo Gist ID salvato: {result['id']}")
+            
             return True
-        return False
+        else:
+            print(f"❌ Errore backup Gist: {response.status_code}")
+            return False
             
     except Exception as e:
         print(f"❌ Errore durante backup: {str(e)}")
         return False
 
 def restore_database_from_gist():
-    """Ripristina il database da GitHub Gist"""
     if not GITHUB_TOKEN or not GIST_ID:
+        print("❌ Token o Gist ID non configurati - restore disabilitato")
         return False
     
     try:
@@ -428,20 +432,26 @@ def restore_database_from_gist():
             if backup_file:
                 backup_content = json.loads(backup_file['content'])
                 db_base64 = backup_content['database_base64']
+                timestamp = backup_content['timestamp']
                 
                 db_content = base64.b64decode(db_base64)
                 with open(DATABASE_NAME, 'wb') as f:
                     f.write(db_content)
                 
+                print(f"✅ Database ripristinato da backup: {timestamp}")
                 return True
-        return False
+            else:
+                print("❌ File di backup non trovato nel Gist")
+                return False
+        else:
+            print(f"❌ Errore recupero Gist: {response.status_code}")
+            return False
             
     except Exception as e:
         print(f"❌ Errore durante restore: {str(e)}")
         return False
 
 def backup_scheduler():
-    """Scheduler per backup automatici"""
     print("🔄 Scheduler backup avviato (ogni 25 minuti)")
     time.sleep(10)
     backup_database_to_gist()
@@ -450,27 +460,91 @@ def backup_scheduler():
         time.sleep(1500)
         backup_database_to_gist()
 
-# === SISTEMA KEEP-ALIVE ===
+# === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
 def keep_alive_aggressive():
-    """Keep-alive ultra-aggressivo per evitare spin-down"""
     urls = [
         "https://tuo-bot-interventi.onrender.com/health",
         "https://tuo-bot-interventi.onrender.com/", 
-        "https://tuo-bot-interventi.onrender.com/ping"
+        "https://tuo-bot-interventi.onrender.com/ping",
+        "https://tuo-bot-interventi.onrender.com/status"
     ]
     
     print("🔄 Sistema keep-alive ULTRA-AGGRESSIVO avviato! Ping ogni 5 minuti...")
     
     while True:
+        success_count = 0
         for url in urls:
             try:
                 response = requests.get(url, timeout=15)
                 if response.status_code == 200:
-                    print(f"✅ Ping riuscito - {datetime.now().strftime('%H:%M:%S')}")
+                    print(f"✅ Ping riuscito - {datetime.now().strftime('%H:%M:%S')} - {url}")
+                    success_count += 1
+                else:
+                    print(f"⚠️  Ping {url} - Status: {response.status_code}")
             except Exception as e:
                 print(f"❌ Errore ping {url}: {e}")
         
+        print(f"📊 Ping completati: {success_count}/{len(urls)} successi")
+        
+        if success_count == 0:
+            print("🚨 CRITICO: Tutti i ping fallitti! Riavvio in 30 secondi...")
+            time.sleep(30)
+            os._exit(1)
+        
         time.sleep(300)
+
+# === FUNZIONI SERVER STATUS ===
+def get_system_metrics():
+    try:
+        process = psutil.Process(os.getpid())
+        process_memory = process.memory_info().rss / 1024 / 1024
+        
+        system_memory = psutil.virtual_memory()
+        total_memory_used = system_memory.used / 1024 / 1024
+        total_memory_total = system_memory.total / 1024 / 1024
+        memory_percent = system_memory.percent
+        
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.now() - boot_time
+        
+        metrics_msg = "📊 **METRICHE DI SISTEMA:**\n"
+        metrics_msg += f"• RAM Bot: {process_memory:.1f}MB\n"
+        metrics_msg += f"• RAM Sistema: {total_memory_used:.1f}MB / {total_memory_total:.1f}MB ({memory_percent:.1f}%)\n"
+        metrics_msg += f"• CPU: {cpu_percent:.1f}%\n"
+        metrics_msg += f"• Uptime: {str(uptime).split('.')[0]}\n"
+        
+        return metrics_msg
+        
+    except Exception as e:
+        return f"📊 Errore metriche: {str(e)}"
+
+# === SERVER FLASK PER RENDER ===
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Bot Interventi VVF - ONLINE 🟢 - Keep-alive attivo!"
+
+@app.route('/health')
+def health():
+    return "OK"
+
+@app.route('/ping')
+def ping():
+    return f"PONG - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+@app.route('/status')
+def status():
+    return "Bot Active | Keep-alive: ✅"
+
+@app.route('/keep-alive')
+def keep_alive_endpoint():
+    return f"KEEP-ALIVE ACTIVE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=10000, debug=False)
 
 # === TASTIERA FISICA ===
 def crea_tastiera_fisica(user_id):
@@ -557,7 +631,7 @@ async def gestisci_richieste(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=reply_markup
     )
 
-# === NUOVO INTERVENTO - FLUSSO INTERATTIVO ===
+# === NUOVO INTERVENTO - FLUSSO COMPLETO ===
 async def avvia_nuovo_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_user_approved(user_id):
@@ -590,7 +664,7 @@ async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYP
             "📝 **INSERISCI RAPPORTO COMO**\n\n"
             "Inserisci il numero del rapporto Como (solo numeri):"
         )
-    else:  # tipo_collegato
+    else:
         interventi_attivi = get_ultimi_interventi_attivi()
         if not interventi_attivi:
             await query.edit_message_text("❌ Nessun intervento attivo trovato. Crea un nuovo rapporto.")
@@ -614,6 +688,46 @@ async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=reply_markup
         )
 
+async def gestisci_collega_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, intervento_id: int):
+    query = update.callback_query
+    await query.answer()
+    
+    # Recupera dati intervento esistente
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT rapporto_como, numero_erba FROM interventi WHERE id = ?''', (intervento_id,))
+    intervento = c.fetchone()
+    conn.close()
+    
+    if intervento:
+        rapporto_como, numero_erba = intervento
+        progressivo_como = get_progressivo_per_rapporto(rapporto_como)
+        
+        context.user_data['nuovo_intervento']['rapporto_como'] = rapporto_como
+        context.user_data['nuovo_intervento']['progressivo_como'] = progressivo_como
+        context.user_data['nuovo_intervento']['numero_erba'] = numero_erba
+        
+        context.user_data['fase'] = 'data_uscita'
+        
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        ieri = (datetime.now() - timedelta(days=1)).strftime('%d/%m/%Y')
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(f"🟢 OGGI ({oggi})", callback_data="data_oggi"),
+                InlineKeyboardButton(f"🟡 IERI ({ieri})", callback_data="data_ieri")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"🔗 **COLLEGATO A R{rapporto_como}**\n"
+            f"Progressivo: {progressivo_como}\n\n"
+            "📅 **DATA USCITA**\n"
+            "Seleziona la data di uscita:",
+            reply_markup=reply_markup
+        )
+
 async def gestisci_rapporto_como(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rapporto = update.message.text.strip()
     
@@ -623,6 +737,7 @@ async def gestisci_rapporto_como(update: Update, context: ContextTypes.DEFAULT_T
     
     context.user_data['nuovo_intervento']['rapporto_como'] = rapporto
     context.user_data['nuovo_intervento']['progressivo_como'] = "01"
+    context.user_data['nuovo_intervento']['numero_erba'] = get_prossimo_numero_erba()
     context.user_data['fase'] = 'data_uscita'
     
     oggi = datetime.now().strftime('%d/%m/%Y')
@@ -648,7 +763,7 @@ async def gestisci_data_uscita(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if callback_data == "data_oggi":
         data_uscita = datetime.now()
-    else:  # data_ieri
+    else:
         data_uscita = datetime.now() - timedelta(days=1)
     
     context.user_data['nuovo_intervento']['data_uscita'] = data_uscita.strftime('%Y-%m-%d')
@@ -676,7 +791,6 @@ async def gestisci_ora_uscita(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['nuovo_intervento']['data_uscita_completa'] = data_uscita.strftime('%Y-%m-%d %H:%M:%S')
         context.user_data['fase'] = 'selezione_mezzo'
         
-        # Mostra selezione mezzo
         mezzi = get_mezzi_attivi()
         keyboard = []
         for targa, tipo in mezzi:
@@ -704,7 +818,6 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
     context.user_data['nuovo_intervento']['mezzo_tipo'] = tipo_mezzo
     context.user_data['fase'] = 'selezione_capopartenza'
     
-    # Mostra selezione capopartenza
     vigili = get_vigili_attivi()
     keyboard = []
     for vigile_id, nome, cognome, qualifica in vigili:
@@ -728,7 +841,6 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
     context.user_data['nuovo_intervento']['capopartenza'] = f"{vigile[1]} {vigile[2]}"
     context.user_data['fase'] = 'selezione_autista'
     
-    # Mostra selezione autista (escludendo il capopartenza già selezionato)
     vigili = get_vigili_attivi()
     keyboard = []
     for vigile_id, nome, cognome, qualifica in vigili:
@@ -757,7 +869,6 @@ async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAU
     ]
     context.user_data['fase'] = 'selezione_vigili'
     
-    # Prepara per selezione vigili aggiuntivi
     context.user_data['vigili_da_selezionare'] = [
         vigile for vigile in get_vigili_attivi() 
         if vigile[0] not in context.user_data['nuovo_intervento']['partecipanti']
@@ -770,7 +881,6 @@ async def mostra_selezione_vigili(query, context):
     vigili_da_selezionare = context.user_data['vigili_da_selezionare']
     
     if not vigili_da_selezionare:
-        # Nessun altro vigile da selezionare, passa all'indirizzo
         context.user_data['fase'] = 'inserisci_indirizzo'
         await query.edit_message_text(
             "📝 **INDIRIZZO INTERVENTO**\n\n"
@@ -801,14 +911,13 @@ async def gestisci_selezione_vigile(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
     
     parts = callback_data.split('_')
-    scelta = parts[1]  # 'si' o 'no'
+    scelta = parts[1]
     vigile_id = int(parts[2])
     
     if scelta == 'si':
         context.user_data['vigili_selezionati'].append(vigile_id)
         context.user_data['nuovo_intervento']['partecipanti'].append(vigile_id)
     
-    # Rimuovi il vigile corrente dalla lista
     context.user_data['vigili_da_selezionare'] = context.user_data['vigili_da_selezionare'][1:]
     
     await mostra_selezione_vigili(query, context)
@@ -818,16 +927,11 @@ async def gestisci_indirizzo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['nuovo_intervento']['indirizzo'] = indirizzo
     context.user_data['fase'] = 'conferma'
     
-    # Calcola numero Erba
-    context.user_data['nuovo_intervento']['numero_erba'] = get_prossimo_numero_erba()
-    
-    # Prepara riepilogo
     await mostra_riepilogo(update, context)
 
 async def mostra_riepilogo(update, context):
     dati = context.user_data['nuovo_intervento']
     
-    # Formatta partecipanti
     partecipanti_nomi = []
     for vigile_id in dati['partecipanti']:
         vigile = get_vigile_by_id(vigile_id)
@@ -867,7 +971,6 @@ async def conferma_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE
     if callback_data == "conferma_si":
         try:
             dati = context.user_data['nuovo_intervento']
-            # Aggiungi data rientro (per ora vuota)
             dati['data_rientro'] = None
             
             intervento_id = inserisci_intervento(dati)
@@ -884,10 +987,111 @@ async def conferma_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await query.edit_message_text("❌ Intervento annullato.")
     
-    # Pulisci i dati temporanei
     for key in ['nuovo_intervento', 'fase', 'vigili_da_selezionare', 'vigili_selezionati']:
         if key in context.user_data:
             del context.user_data[key]
+
+# === GESTIONE VIGILI (ADMIN) ===
+async def gestione_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("👥 Lista Vigili", callback_data="lista_vigili")],
+        [InlineKeyboardButton("✏️ Modifica Vigile", callback_data="modifica_vigile")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "⚙️ **GESTIONE VIGILI**\n\n"
+        "Seleziona un'operazione:",
+        reply_markup=reply_markup
+    )
+
+async def mostra_lista_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    vigili = get_tutti_vigili()
+    if not vigili:
+        await query.edit_message_text("❌ Nessun vigile trovato nel database.")
+        return
+    
+    messaggio = "👥 **ELENCO VIGILI**\n\n"
+    for vigile in vigili:
+        id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
+        status = "🟢" if attivo else "🔴"
+        specialita = []
+        if nautica: specialita.append("🛥️")
+        if saf: specialita.append("🔥")
+        if tpss: specialita.append("🚧")
+        if atp: specialita.append("✈️")
+        
+        messaggio += f"{status} **{cognome} {nome}**\n"
+        messaggio += f"   {qualifica} | Patente: {grado} {''.join(specialita)}\n\n"
+    
+    await query.edit_message_text(messaggio)
+
+# === ESPORTAZIONE DATI ===
+async def esporta_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    interventi = get_ultimi_interventi(1000)
+    
+    if not interventi:
+        await update.message.reply_text("❌ Nessun dato da esportare.")
+        return
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        'Numero Erba', 'Rapporto Como', 'Progressivo', 'Data Uscita', 'Data Rientro',
+        'Mezzo', 'Capopartenza', 'Autista', 'Partecipanti', 'Indirizzo', 'Tipologia'
+    ])
+    
+    for intervento in interventi:
+        id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, indirizzo, tipologia, created_at, partecipanti = intervento
+        
+        data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+        data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+        mezzo = f"{mezzo_targa} - {mezzo_tipo}"
+        
+        writer.writerow([
+            num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+            mezzo, capo, autista, partecipanti or '', indirizzo, tipologia or ''
+        ])
+    
+    csv_data = output.getvalue()
+    output.close()
+    
+    await update.message.reply_document(
+        document=StringIO(csv_data),
+        filename=f"interventi_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        caption="📤 **Esportazione dati completata**"
+    )
+
+# === HELP ===
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+🆘 **GUIDA BOT INTERVENTI VVF**
+
+🎯 **FUNZIONALITÀ PRINCIPALI:**
+
+👤 **UTENTE:**
+• ➕ Nuovo Intervento - Registra un nuovo intervento
+• 📋 Ultimi Interventi - Visualizza gli ultimi 10 interventi
+• 📊 Statistiche - Statistiche annuali
+• 🔍 Cerca Rapporto - Cerca interventi per rapporto Como
+• 📤 Esporta Dati - Esporta dati in CSV (solo admin)
+
+👨‍💻 **ADMIN:**
+• 👥 Gestisci Richieste - Approva nuovi utenti
+• ⚙️ Gestione Vigili - Gestisci anagrafica vigili
+
+🔧 **SISTEMA:**
+• ✅ Always online con keep-alive
+• 💾 Backup automatico ogni 25 minuti
+• 🔒 Accesso controllato
+• 📱 Interfaccia ottimizzata per mobile
+"""
+
+    await update.message.reply_text(help_text, reply_markup=crea_tastiera_fisica(update.effective_user.id))
 
 # === GESTIONE MESSAGGI PRINCIPALE ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -899,7 +1103,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await start(update, context)
         return
 
-    # Controlla se siamo in mezzo a un flusso di inserimento
     fase = context.user_data.get('fase')
     if fase == 'inserisci_rapporto':
         await gestisci_rapporto_como(update, context)
@@ -908,7 +1111,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif fase == 'inserisci_indirizzo':
         await gestisci_indirizzo(update, context)
     
-    # Comandi principali
     elif text == "➕ Nuovo Intervento":
         await avvia_nuovo_intervento(update, context)
     
@@ -942,7 +1144,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stats['tipologie']:
             messaggio += "📋 **Per tipologia:**\n"
             for tipologia, count in stats['tipologie'].items():
-                if tipologia:  # Evita tipologie vuote
+                if tipologia:
                     messaggio += f"• {tipologia}: {count}\n"
             messaggio += "\n"
         
@@ -974,7 +1176,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "🆘 Help":
         await help_command(update, context)
     
-    # Gestione ricerca rapporto
     elif context.user_data.get('fase_ricerca') == 'anno':
         anno = text.strip()
         if anno.isdigit() and len(anno) == 4:
@@ -1007,99 +1208,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Numero rapporto non valido!")
         
-        # Pulisci fase ricerca
         for key in ['fase_ricerca', 'anno_ricerca']:
             if key in context.user_data:
                 del context.user_data[key]
     
     else:
         await update.message.reply_text("ℹ️ Usa i pulsanti per navigare.", reply_markup=crea_tastiera_fisica(user_id))
-
-# === ESPORTAZIONE DATI ===
-async def esporta_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Esporta i dati in formato CSV"""
-    interventi = get_ultimi_interventi(1000)  # Limite alto per export
-    
-    if not interventi:
-        await update.message.reply_text("❌ Nessun dato da esportare.")
-        return
-    
-    # Crea CSV
-    output = StringIO()
-    writer = csv.writer(output)
-    
-    # Intestazione
-    writer.writerow([
-        'Numero Erba', 'Rapporto Como', 'Progressivo', 'Data Uscita', 'Data Rientro',
-        'Mezzo', 'Capopartenza', 'Autista', 'Partecipanti', 'Indirizzo', 'Tipologia'
-    ])
-    
-    # Dati
-    for intervento in interventi:
-        id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, indirizzo, tipologia, created_at, partecipanti = intervento
-        
-        data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
-        data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
-        mezzo = f"{mezzo_targa} - {mezzo_tipo}"
-        
-        writer.writerow([
-            num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
-            mezzo, capo, autista, partecipanti or '', indirizzo, tipologia or ''
-        ])
-    
-    csv_data = output.getvalue()
-    output.close()
-    
-    # Invia il file
-    await update.message.reply_document(
-        document=StringIO(csv_data),
-        filename=f"interventi_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-        caption="📤 **Esportazione dati completata**"
-    )
-
-# === GESTIONE VIGILI (ADMIN) ===
-async def gestione_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Menu gestione vigili per admin"""
-    keyboard = [
-        [InlineKeyboardButton("👥 Lista Vigili", callback_data="lista_vigili")],
-        [InlineKeyboardButton("➕ Aggiungi Vigile", callback_data="aggiungi_vigile")],
-        [InlineKeyboardButton("✏️ Modifica Vigile", callback_data="modifica_vigile")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "⚙️ **GESTIONE VIGILI**\n\n"
-        "Seleziona un'operazione:",
-        reply_markup=reply_markup
-    )
-
-# === HELP ===
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🆘 **GUIDA BOT INTERVENTI VVF**
-
-🎯 **FUNZIONALITÀ PRINCIPALI:**
-
-👤 **UTENTE:**
-• ➕ Nuovo Intervento - Registra un nuovo intervento
-• 📋 Ultimi Interventi - Visualizza gli ultimi 10 interventi
-• 📊 Statistiche - Statistiche annuali
-• 🔍 Cerca Rapporto - Cerca interventi per rapporto Como
-• 📤 Esporta Dati - Esporta dati in CSV (solo admin)
-
-👨‍💻 **ADMIN:**
-• 👥 Gestisci Richieste - Approva nuovi utenti
-• ⚙️ Gestione Vigili - Gestisci anagrafica vigili
-• 📤 Esporta Dati - Scarica dati completi
-
-🔧 **SISTEMA:**
-• ✅ Always online con keep-alive
-• 💾 Backup automatico ogni 25 minuti
-• 🔒 Accesso controllato
-• 📱 Interfaccia ottimizzata per mobile
-"""
-
-    await update.message.reply_text(help_text, reply_markup=crea_tastiera_fisica(update.effective_user.id))
 
 # === GESTIONE BOTTONI INLINE ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1114,8 +1228,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data.startswith("collega_"):
         intervento_id = int(data.replace('collega_', ''))
-        # Qui gestire il collegamento a intervento esistente
-        await query.edit_message_text("🔗 Funzionalità di collegamento in sviluppo...")
+        await gestisci_collega_intervento(update, context, intervento_id)
     
     elif data.startswith("data_"):
         await gestisci_data_uscita(update, context, data)
@@ -1177,50 +1290,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messaggio = "❌ Utente rifiutato! 🎉 Tutte le richieste gestite."
             
         await query.edit_message_text(messaggio)
-
-# === SERVER FLASK PER RENDER ===
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 Bot Interventi VVF - ONLINE 🟢"
-
-@app.route('/health')
-def health():
-    return "OK"
-
-@app.route('/ping')
-def ping():
-    return f"PONG - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-
-@app.route('/status')
-def status():
-    interventi = len(get_ultimi_interventi(1000))
-    return f"Bot Active | Interventi: {interventi} | Keep-alive: ✅"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=10000, debug=False)
+    
+    # Gestione vigili
+    elif data == "lista_vigili":
+        await mostra_lista_vigili(update, context)
+    
+    elif data == "modifica_vigile":
+        await query.edit_message_text("✏️ Modifica vigile - da implementare")
 
 # === MAIN ===
 def main():
     print("🚀 Avvio Bot Interventi VVF...")
     
-    # Verifica integrità database
+    print("🔄 Tentativo di ripristino database da backup...")
+    if not restore_database_from_gist():
+        print("🔄 Inizializzazione database nuovo...")
+        init_db()
+    
+    print("🔍 Verifica integrità database...")
     if not check_database_integrity():
         print("🔄 Ricreazione database di emergenza...")
         emergency_recreate_database()
     
-    # Avvia Flask
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     print("✅ Flask server started on port 10000")
     
-    # Avvia keep-alive
     keep_alive_thread = threading.Thread(target=keep_alive_aggressive, daemon=True)
     keep_alive_thread.start()
-    print("✅ Sistema keep-alive attivato! Ping ogni 5 minuti")
+    print("✅ Sistema keep-alive ULTRA-AGGRESSIVO attivato! Ping ogni 5 minuti")
     
-    # Avvia backup
     backup_thread = threading.Thread(target=backup_scheduler, daemon=True)
     backup_thread.start()
     print("✅ Scheduler backup attivato! Backup ogni 25 minuti")
@@ -1238,6 +1337,7 @@ def main():
     print("💾 Database: SQLite3 con backup automatico")
     print("👥 Admin configurati:", len(ADMIN_IDS))
     print("⏰ Ping automatici ogni 5 minuti - Zero spin down! 🚀")
+    print("💾 Backup automatici ogni 25 minuti - Dati al sicuro! 🛡️")
     
     application.run_polling()
 
