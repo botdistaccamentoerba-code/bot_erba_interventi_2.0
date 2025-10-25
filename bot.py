@@ -1,4 +1,4 @@
-#BOT_TOKEN  
+#BOT_TOKEN  7554833400:AAEQzzpJESp_FNqd-nPLZh1QNlUoF9_bGMU
 #GITHUB
 import logging
 import sqlite3
