@@ -1,4 +1,3 @@
-#BOT_TOKEN  7554833400:AAEQzzpJESp_FNqd-nPLZh1QNlUoF9_bGMU #GITHUB TOKEN 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
 import logging
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
@@ -15,6 +14,7 @@ import base64
 import json
 import csv
 from io import StringIO
+from telegram.error import BadRequest, NetworkError
 
 # === CONFIGURAZIONE ===
 DATABASE_NAME = 'interventi_vvf.db'
@@ -462,11 +462,13 @@ def backup_scheduler():
 
 # === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
 def keep_alive_aggressive():
+    # Usa l'URL corretto del tuo servizio Render
+    service_url = "https://bot-erba-interventi-2-0.onrender.com"
     urls = [
-        "https://tuo-bot-interventi.onrender.com/health",
-        "https://tuo-bot-interventi.onrender.com/", 
-        "https://tuo-bot-interventi.onrender.com/ping",
-        "https://tuo-bot-interventi.onrender.com/status"
+        f"{service_url}/health",
+        f"{service_url}/", 
+        f"{service_url}/ping",
+        f"{service_url}/status"
     ]
     
     print("🔄 Sistema keep-alive ULTRA-AGGRESSIVO avviato! Ping ogni 5 minuti...")
@@ -599,6 +601,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gestisci_richieste(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
+        await update.message.reply_text("❌ Solo gli amministratori possono gestire le richieste.")
         return
 
     richieste = get_richieste_in_attesa()
@@ -656,7 +659,11 @@ async def avvia_nuovo_intervento(update: Update, context: ContextTypes.DEFAULT_T
 
 async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     if callback_data == "tipo_nuovo":
         context.user_data['fase'] = 'inserisci_rapporto'
@@ -690,7 +697,11 @@ async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def gestisci_collega_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, intervento_id: int):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     # Recupera dati intervento esistente
     conn = sqlite3.connect(DATABASE_NAME)
@@ -759,7 +770,11 @@ async def gestisci_rapporto_como(update: Update, context: ContextTypes.DEFAULT_T
 
 async def gestisci_data_uscita(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     if callback_data == "data_oggi":
         data_uscita = datetime.now()
@@ -808,7 +823,11 @@ async def gestisci_ora_uscita(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     targa = callback_data.replace('mezzo_', '')
     mezzi = get_mezzi_attivi()
@@ -832,7 +851,11 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
 
 async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     vigile_id = int(callback_data.replace('capo_', ''))
     vigile = get_vigile_by_id(vigile_id)
@@ -856,7 +879,11 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
 
 async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     vigile_id = int(callback_data.replace('autista_', ''))
     vigile = get_vigile_by_id(vigile_id)
@@ -908,7 +935,11 @@ async def mostra_selezione_vigili(query, context):
 
 async def gestisci_selezione_vigile(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     parts = callback_data.split('_')
     scelta = parts[1]
@@ -966,7 +997,11 @@ async def mostra_riepilogo(update, context):
 
 async def conferma_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     if callback_data == "conferma_si":
         try:
@@ -993,6 +1028,11 @@ async def conferma_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # === GESTIONE VIGILI (ADMIN) ===
 async def gestione_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Solo gli amministratori possono gestire i vigili.")
+        return
+        
     keyboard = [
         [InlineKeyboardButton("👥 Lista Vigili", callback_data="lista_vigili")],
         [InlineKeyboardButton("✏️ Modifica Vigile", callback_data="modifica_vigile")]
@@ -1007,7 +1047,11 @@ async def gestione_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mostra_lista_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
     
     vigili = get_tutti_vigili()
     if not vigili:
@@ -1031,6 +1075,10 @@ async def mostra_lista_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # === ESPORTAZIONE DATI ===
 async def esporta_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Solo gli amministratori possono esportare i dati.")
+        return
+        
     interventi = get_ultimi_interventi(1000)
     
     if not interventi:
@@ -1162,15 +1210,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔍 **RICERCA RAPPORTO**\n\nInserisci l'anno del rapporto:")
     
     elif text == "📤 Esporta Dati":
-        if is_admin(user_id):
-            await esporta_dati(update, context)
-        else:
-            await update.message.reply_text("❌ Solo gli amministratori possono esportare i dati.")
+        await esporta_dati(update, context)
     
-    elif text == "👥 Gestisci Richieste" and is_admin(user_id):
+    elif text == "👥 Gestisci Richieste":
         await gestisci_richieste(update, context)
     
-    elif text == "⚙️ Gestione Vigili" and is_admin(user_id):
+    elif text == "⚙️ Gestione Vigili":
         await gestione_vigili(update, context)
     
     elif text == "🆘 Help":
@@ -1218,7 +1263,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === GESTIONE BOTTONI INLINE ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
     data = query.data
     user_id = query.from_user.id
 
@@ -1298,6 +1348,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "modifica_vigile":
         await query.edit_message_text("✏️ Modifica vigile - da implementare")
 
+# === ERROR HANDLER ===
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gestisce gli errori"""
+    if isinstance(context.error, BadRequest) and "Query is too old" in str(context.error):
+        return  # Ignora query scadute
+    print(f"❌ Errore: {context.error}")
+
 # === MAIN ===
 def main():
     print("🚀 Avvio Bot Interventi VVF...")
@@ -1330,6 +1387,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_error_handler(error_handler)
 
     print("🤖 Bot Interventi VVF Avviato!")
     print("📍 Server: Render.com")
