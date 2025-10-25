@@ -714,6 +714,115 @@ def crea_tastiera_fisica(user_id):
 
     return ReplyKeyboardMarkup(tastiera, resize_keyboard=True, is_persistent=True)
 
+# === IMPORT/EXPORT CSV ===
+async def gestione_import_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Solo gli amministratori possono accedere a questa funzione.")
+        return
+        
+    keyboard = [
+        [InlineKeyboardButton("📤 Esporta Dati", callback_data="export_menu")],
+        [InlineKeyboardButton("📥 Importa Dati", callback_data="import_menu")],
+        [InlineKeyboardButton("🔙 Indietro", callback_data="admin_indietro")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "📁 **GESTIONE IMPORT/EXPORT**\n\n"
+        "Seleziona un'operazione:",
+        reply_markup=reply_markup
+    )
+
+async def importa_dati_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    await query.edit_message_text(
+        "📥 **IMPORTAZIONE DATI**\n\n"
+        "Per importare i dati, invia il file CSV utilizzando l'icona della graffetta 📎.\n\n"
+        "⚠️ **Importante:** Il file deve avere la stessa formattazione del file di esportazione.\n"
+        "I dati verranno aggiunti al database esistente."
+    )
+    
+    context.user_data['in_attesa_file'] = True
+
+async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get('in_attesa_file'):
+        return
+        
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Solo gli amministratori possono importare dati.")
+        return
+    
+    document = update.message.document
+    if not document.file_name.endswith('.csv'):
+        await update.message.reply_text("❌ Il file deve essere in formato CSV.")
+        return
+    
+    try:
+        file = await context.bot.get_file(document.file_id)
+        file_content = await file.download_as_bytearray()
+        csv_content = file_content.decode('utf-8').splitlines()
+        
+        reader = csv.reader(csv_content)
+        headers = next(reader)  # Salta l'intestazione
+        
+        imported_count = 0
+        error_count = 0
+        
+        for row in reader:
+            try:
+                if len(row) < 16:  # Controlla che ci siano abbastanza colonne
+                    error_count += 1
+                    continue
+                
+                # Mappatura dei dati dal CSV
+                dati = {
+                    'numero_erba': int(row[0]),
+                    'rapporto_como': row[1],
+                    'progressivo_como': row[2],
+                    'data_uscita_completa': datetime.strptime(row[3], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S'),
+                    'data_rientro_completa': datetime.strptime(row[4], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S') if row[4] else None,
+                    'mezzo_targa': row[5],
+                    'mezzo_tipo': row[6],
+                    'capopartenza': row[7],
+                    'autista': row[8],
+                    'indirizzo': row[10],
+                    'tipologia': row[11],
+                    'cambio_personale': row[12] == 'Sì',
+                    'km_finali': int(row[13]) if row[13] else None,
+                    'litri_riforniti': int(row[14]) if row[14] else None
+                }
+                
+                # Inserisci nel database
+                inserisci_intervento(dati)
+                imported_count += 1
+                
+            except Exception as e:
+                error_count += 1
+                continue
+        
+        # Cleanup
+        context.user_data['in_attesa_file'] = False
+        
+        await update.message.reply_text(
+            f"✅ **IMPORTAZIONE COMPLETATA**\n\n"
+            f"📊 **Risultati:**\n"
+            f"• ✅ Record importati: {imported_count}\n"
+            f"• ❌ Errori: {error_count}\n\n"
+            f"I dati sono stati aggiunti al database."
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Errore durante l'importazione: {str(e)}")
+        context.user_data['in_attesa_file'] = False
+
 # === HANDLER START ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1173,6 +1282,18 @@ async def gestisci_ora_rientro(update: Update, context: ContextTypes.DEFAULT_TYP
         
         data_rientro = datetime.strptime(context.user_data['nuovo_intervento']['data_rientro'], '%Y-%m-%d')
         data_rientro = data_rientro.replace(hour=ore, minute=minuti)
+        
+        # CONTROLLO: Verifica che il rientro sia dopo l'uscita
+        data_uscita = datetime.strptime(context.user_data['nuovo_intervento']['data_uscita_completa'], '%Y-%m-%d %H:%M:%S')
+        if data_rientro <= data_uscita:
+            await update.message.reply_text(
+                "❌ **ERRORE: L'ora di rientro deve essere successiva all'ora di uscita!**\n\n"
+                f"Uscita: {data_uscita.strftime('%d/%m/%Y %H:%M')}\n"
+                f"Rientro: {data_rientro.strftime('%d/%m/%Y %H:%M')}\n\n"
+                "Inserisci nuovamente l'ora di rientro:"
+            )
+            return
+        
         context.user_data['nuovo_intervento']['data_rientro_completa'] = data_rientro.strftime('%Y-%m-%d %H:%M:%S')
         context.user_data['fase'] = 'selezione_mezzo'
         
@@ -1205,13 +1326,28 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
     
     context.user_data['nuovo_intervento']['mezzo_targa'] = targa
     context.user_data['nuovo_intervento']['mezzo_tipo'] = tipo_mezzo
-    context.user_data['fase'] = 'cambio_personale'
     
-    # FIX: Controlla se il progressivo è 02 o superiore per mostrare il cambio personale
-    progressivo = context.user_data['nuovo_intervento']['progressivo_como']
+    # FIX: Controlla se il rapporto è 02 o superiore per mostrare cambio personale
+    progressivo = context.user_data['nuovo_intervento'].get('progressivo_como', '01')
     
-    if progressivo == "01":
-        # Se è 01, salta direttamente il cambio personale (imposta False)
+    if progressivo in ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']:
+        context.user_data['fase'] = 'cambio_personale'
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Sì", callback_data="cambio_si"),
+                InlineKeyboardButton("❌ No", callback_data="cambio_no")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "🔄 **CAMBIO PERSONALE**\n\n"
+            "Il mezzo è uscito per cambio personale?",
+            reply_markup=reply_markup
+        )
+    else:
+        # Per progressivo 01, salta direttamente alla selezione capopartenza
         context.user_data['nuovo_intervento']['cambio_personale'] = False
         context.user_data['fase'] = 'selezione_capopartenza'
         
@@ -1226,22 +1362,6 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
             "Seleziona il capopartenza:",
             reply_markup=reply_markup
         )
-        return
-    
-    # Se è 02 o superiore, mostra la scelta del cambio personale
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Sì", callback_data="cambio_si"),
-            InlineKeyboardButton("❌ No", callback_data="cambio_no")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        "🔄 **CAMBIO PERSONALE**\n\n"
-        "Il mezzo è uscito per cambio personale?",
-        reply_markup=reply_markup
-    )
 
 async def gestisci_cambio_personale(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
@@ -1590,7 +1710,9 @@ async def gestione_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("👥 Gestione Vigili", callback_data="admin_vigili")],
         [InlineKeyboardButton("🚒 Gestione Mezzi", callback_data="admin_mezzi")],
-        [InlineKeyboardButton("✏️ Modifica Intervento", callback_data="modifica_intervento")]
+        [InlineKeyboardButton("✏️ Modifica Intervento", callback_data="modifica_intervento")],
+        [InlineKeyboardButton("📁 Import/Export", callback_data="import_export")],
+        [InlineKeyboardButton("🔙 Menu Principale", callback_data="menu_principale")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -2270,8 +2392,8 @@ async def gestisci_progressivo_modifica(update: Update, context: ContextTypes.DE
     
     # Mostra i campi modificabili
     keyboard = [
-        [InlineKeyboardButton("📅 Data Uscita", callback_data="campo_data_uscita")],
-        [InlineKeyboardButton("📅 Data Rientro", callback_data="campo_data_rientro")],
+        [InlineKeyboardButton("📅 Data/Ora Uscita", callback_data="campo_data_uscita")],
+        [InlineKeyboardButton("📅 Data/Ora Rientro", callback_data="campo_data_rientro")],
         [InlineKeyboardButton("🚒 Mezzo", callback_data="campo_mezzo")],
         [InlineKeyboardButton("👨‍🚒 Capopartenza", callback_data="campo_capopartenza")],
         [InlineKeyboardButton("🚗 Autista", callback_data="campo_autista")],
@@ -2348,18 +2470,90 @@ async def gestisci_selezione_campo(update: Update, context: ContextTypes.DEFAULT
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("Seleziona la nuova tipologia:", reply_markup=reply_markup)
     
+    elif campo in ['data_uscita', 'data_rientro']:
+        # FIX: Unificazione modifica orari
+        context.user_data['fase_modifica'] = 'modifica_orari'
+        context.user_data['tipo_orario'] = campo
+        
+        if campo == 'data_uscita':
+            await query.edit_message_text(
+                "⏰ **MODIFICA DATA/ORA USCITA**\n\n"
+                "Inserisci la nuova data e ora di uscita nel formato:\n"
+                "GG/MM/AAAA HH:MM\n\n"
+                "Esempio: 25/12/2024 14:30"
+            )
+        else:
+            await query.edit_message_text(
+                "⏰ **MODIFICA DATA/ORA RIENTRO**\n\n"
+                "Inserisci la nuova data e ora di rientro nel formato:\n"
+                "GG/MM/AAAA HH:MM\n\n"
+                "Esempio: 25/12/2024 16:45"
+            )
+    
     else:
         # Campi con inserimento testo
         context.user_data['fase_modifica'] = 'inserisci_valore'
         messaggi_campi = {
-            'data_uscita': "Inserisci la nuova data e ora di uscita (formato: GG/MM/AAAA HH:MM):",
-            'data_rientro': "Inserisci la nuova data e ora di rientro (formato: GG/MM/AAAA HH:MM):",
             'indirizzo': "Inserisci il nuovo indirizzo:",
             'km_finali': "Inserisci i nuovi km finali:",
             'litri_riforniti': "Inserisci i nuovi litri riforniti:"
         }
         
         await query.edit_message_text(messaggi_campi.get(campo, "Inserisci il nuovo valore:"))
+
+async def gestisci_modifica_orari(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        nuovo_valore = update.message.text.strip()
+        data_ora = datetime.strptime(nuovo_valore, '%d/%m/%Y %H:%M')
+        nuovo_valore_db = data_ora.strftime('%Y-%m-%d %H:%M:%S')
+        
+        campo = context.user_data['tipo_orario']
+        rapporto = context.user_data['modifica_intervento']['rapporto']
+        progressivo = context.user_data['modifica_intervento']['progressivo']
+        
+        # CONTROLLO: Verifica coerenza temporale
+        if campo == 'data_rientro':
+            # Recupera data uscita per controllo
+            intervento = get_intervento_by_rapporto(rapporto, progressivo)
+            if intervento:
+                data_uscita_db = intervento[4]  # data_uscita è al 4° campo
+                data_uscita = datetime.strptime(data_uscita_db, '%Y-%m-%d %H:%M:%S')
+                
+                if data_ora <= data_uscita:
+                    await update.message.reply_text(
+                        "❌ **ERRORE: L'ora di rientro deve essere successiva all'ora di uscita!**\n\n"
+                        f"Uscita: {data_uscita.strftime('%d/%m/%Y %H:%M')}\n"
+                        f"Rientro inserito: {data_ora.strftime('%d/%m/%Y %H:%M')}\n\n"
+                        "Inserisci nuovamente la data/ora di rientro:"
+                    )
+                    return
+        
+        # Aggiorna il database
+        campo_db = 'data_uscita' if campo == 'data_uscita' else 'data_rientro'
+        aggiorna_intervento(rapporto, progressivo, campo_db, nuovo_valore_db)
+        
+        await update.message.reply_text(
+            f"✅ **INTERVENTO MODIFICATO!**\n\n"
+            f"Rapporto: R{rapporto}/{progressivo}\n"
+            f"Campo aggiornato: {campo}\n"
+            f"Nuovo valore: {data_ora.strftime('%d/%m/%Y %H:%M')}"
+        )
+        
+    except ValueError as e:
+        await update.message.reply_text(
+            "❌ Formato data/ora non valido!\n\n"
+            "Inserisci nel formato: GG/MM/AAAA HH:MM\n"
+            "Esempio: 25/12/2024 14:30\n\n"
+            "Riprova:"
+        )
+        return
+    except Exception as e:
+        await update.message.reply_text(f"❌ Errore durante la modifica: {str(e)}")
+    
+    # Cleanup
+    for key in ['modifica_intervento', 'fase_modifica', 'tipo_orario']:
+        if key in context.user_data:
+            del context.user_data[key]
 
 async def gestisci_valore_modifica_bottoni(update: Update, context: ContextTypes.DEFAULT_TYPE, campo: str, valore: str):
     query = update.callback_query
@@ -2418,21 +2612,13 @@ async def gestisci_valore_modifica(update: Update, context: ContextTypes.DEFAULT
     
     try:
         # Conversione per campi specifici
-        if campo == 'data_uscita':
-            data_uscita = datetime.strptime(nuovo_valore, '%d/%m/%Y %H:%M')
-            nuovo_valore = data_uscita.strftime('%Y-%m-%d %H:%M:%S')
-        elif campo == 'data_rientro':
-            data_rientro = datetime.strptime(nuovo_valore, '%d/%m/%Y %H:%M')
-            nuovo_valore = data_rientro.strftime('%Y-%m-%d %H:%M:%S')
-        elif campo == 'km_finali':
+        if campo == 'km_finali':
             nuovo_valore = int(nuovo_valore)
         elif campo == 'litri_riforniti':
             nuovo_valore = int(nuovo_valore)
         
         # Mappatura campi database
         campi_db = {
-            'data_uscita': 'data_uscita',
-            'data_rientro': 'data_rientro', 
             'indirizzo': 'indirizzo',
             'km_finali': 'km_finali',
             'litri_riforniti': 'litri_riforniti'
@@ -2524,12 +2710,7 @@ async def esegui_export(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo
             filename_suffix = f"anno_{anno}"
             caption = f"Esportazione dati per l'anno {anno}"
         else:  # tutto
-            # FIX: Usa una query più semplice che restituisce solo i campi base
-            conn = sqlite3.connect(DATABASE_NAME)
-            c = conn.cursor()
-            c.execute('''SELECT * FROM interventi ORDER BY data_uscita DESC''')
-            interventi = c.fetchall()
-            conn.close()
+            interventi = get_ultimi_interventi(10000)
             filename_suffix = "completo"
             caption = "Esportazione completa di tutti i dati"
         
@@ -2541,51 +2722,52 @@ async def esegui_export(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo
         output = StringIO()
         writer = csv.writer(output)
         
-        # Intestazione semplificata
+        # Intestazione FIXATA - 16 colonne invece di 17
         writer.writerow([
             'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
-            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Indirizzo', 
-            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti', 'Data_Creazione'
+            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 
+            'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti', 'Data_Creazione'
         ])
         
-        # Dati - gestione sicura dei campi
+        # Dati
         for intervento in interventi:
-            # FIX: Gestione flessibile del numero di campi
-            if len(intervento) >= 16:  # Numero minimo di campi attesi
-                (id_int, rapporto, progressivo, num_erba, data_uscita, 
-                 data_rientro, mezzo_targa, mezzo_tipo, capo, autista, 
-                 indirizzo, tipologia, cambio_personale, km_finali, 
-                 litri_riforniti, created_at) = intervento[:16]  # Prendi solo i primi 16 campi
-            else:
-                # Se ci sono meno campi, riempi con valori di default
-                campi = list(intervento) + [None] * (16 - len(intervento))
-                (id_int, rapporto, progressivo, num_erba, data_uscita, 
-                 data_rientro, mezzo_targa, mezzo_tipo, capo, autista, 
-                 indirizzo, tipologia, cambio_personale, km_finali, 
-                 litri_riforniti, created_at) = campi
-            
-            # Formattazione sicura delle date
-            try:
-                data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
-            except:
-                data_uscita_fmt = str(data_uscita) if data_uscita else ''
-            
-            try:
-                data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
-            except:
-                data_rientro_fmt = str(data_rientro) if data_rientro else ''
-            
-            try:
-                created_fmt = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if created_at else ''
-            except:
-                created_fmt = str(created_at) if created_at else ''
-            
-            writer.writerow([
-                num_erba or '', rapporto or '', progressivo or '', data_uscita_fmt, data_rientro_fmt,
-                mezzo_targa or '', mezzo_tipo or '', capo or '', autista or '', 
-                indirizzo or '', tipologia or '', 'Sì' if cambio_personale else 'No', 
-                km_finali or '', litri_riforniti or '', created_fmt
-            ])
+            # FIX: Gestione corretta del numero di colonne
+            if len(intervento) >= 16:  # Assicurati che ci siano abbastanza colonne
+                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:16]
+                
+                # Recupera partecipanti separatamente
+                conn = sqlite3.connect(DATABASE_NAME)
+                c = conn.cursor()
+                c.execute('''SELECT GROUP_CONCAT(v.nome || ' ' || v.cognome) 
+                             FROM partecipanti p 
+                             JOIN vigili v ON p.vigile_id = v.id 
+                             WHERE p.intervento_id = ?''', (id_int,))
+                partecipanti_result = c.fetchone()
+                partecipanti = partecipanti_result[0] if partecipanti_result and partecipanti_result[0] else ''
+                conn.close()
+                
+                # FIX: Gestione date mancanti o formattate male
+                try:
+                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                except:
+                    data_uscita_fmt = data_uscita
+                
+                try:
+                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+                except:
+                    data_rientro_fmt = data_rientro or ''
+                
+                try:
+                    created_fmt = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if created_at else ''
+                except:
+                    created_fmt = created_at or ''
+                
+                writer.writerow([
+                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+                    mezzo_targa, mezzo_tipo, capo, autista, partecipanti, 
+                    indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
+                    km_finali or '', litri_riforniti or '', created_fmt
+                ])
         
         csv_data = output.getvalue()
         output.close()
@@ -2628,6 +2810,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 👥 Gestisci Richieste - Approva nuovi utenti e gestisci utenti
 • ⚙️ Gestione - Gestisci vigili, mezzi e modifica interventi
 • 📤 Esporta Dati - Scarica dati completi in CSV
+• 📥 Importa Dati - Importa dati da file CSV
 
 🔧 **SISTEMA:**
 • ✅ Always online con keep-alive
@@ -2694,6 +2877,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif fase_modifica == 'inserisci_valore':
         await gestisci_valore_modifica(update, context)
+        return
+    elif fase_modifica == 'modifica_orari':
+        await gestisci_modifica_orari(update, context)
         return
     elif fase_modifica_vigile == 'inserisci_valore':
         await gestisci_valore_vigile(update, context)
@@ -2956,8 +3142,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "modifica_vigile":
         await avvia_modifica_vigile(update, context)
     
+    elif data == "import_export":
+        await gestione_import_export(update, context)
+    
+    elif data == "import_menu":
+        await importa_dati_csv(update, context)
+    
+    elif data == "export_menu":
+        await esporta_dati(update, context)
+    
     elif data == "admin_indietro":
         await gestione_admin(update, context)
+    
+    elif data == "menu_principale":
+        await start(update, context)
     
     elif data == "richieste_attesa":
         await mostra_richieste_attesa(update, context)
@@ -3116,6 +3314,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, gestisci_file_csv))
     application.add_error_handler(error_handler)
 
     print("🤖 Bot Interventi VVF Avviato!")
