@@ -380,8 +380,11 @@ def backup_database_to_gist():
             'Accept': 'application/vnd.github.v3+json'
         }
         
-        if GIST_ID:
-            url = f'https://api.github.com/gists/{GIST_ID}'
+        # LEGGI GIST_ID DALLE ENV VARIABLES
+        current_gist_id = os.environ.get('GIST_ID')
+        
+        if current_gist_id:
+            url = f'https://api.github.com/gists/{current_gist_id}'
             data = {'files': files}
             response = requests.patch(url, headers=headers, json=data)
         else:
@@ -397,14 +400,16 @@ def backup_database_to_gist():
             result = response.json()
             print(f"✅ Backup su Gist completato: {result['html_url']}")
             
-            if not GIST_ID:
-                with open('gist_id.txt', 'w') as f:
-                    f.write(result['id'])
-                print(f"📝 Nuovo Gist ID salvato: {result['id']}")
+            if not current_gist_id:
+                # SALVA IL NUOVO GIST_ID NELLE ENV VARIABLES (SOLO LOG)
+                new_gist_id = result['id']
+                print(f"📝 Nuovo Gist ID creato: {new_gist_id}")
+                print(f"⚠️  COPIA QUESTO GIST_ID NELLE VARIABILI AMBIENTE SU RENDER: {new_gist_id}")
+                print(f"🔗 Gist URL: {result['html_url']}")
             
             return True
         else:
-            print(f"❌ Errore backup Gist: {response.status_code}")
+            print(f"❌ Errore backup Gist: {response.status_code} - {response.text}")
             return False
             
     except Exception as e:
@@ -412,7 +417,8 @@ def backup_database_to_gist():
         return False
 
 def restore_database_from_gist():
-    if not GITHUB_TOKEN or not GIST_ID:
+    current_gist_id = os.environ.get('GIST_ID')
+    if not GITHUB_TOKEN or not current_gist_id:
         print("❌ Token o Gist ID non configurati - restore disabilitato")
         return False
     
@@ -422,7 +428,7 @@ def restore_database_from_gist():
             'Accept': 'application/vnd.github.v3+json'
         }
         
-        url = f'https://api.github.com/gists/{GIST_ID}'
+        url = f'https://api.github.com/gists/{current_gist_id}'
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
@@ -454,10 +460,12 @@ def restore_database_from_gist():
 def backup_scheduler():
     print("🔄 Scheduler backup avviato (ogni 25 minuti)")
     time.sleep(10)
+    print("🔄 Backup iniziale in corso...")
     backup_database_to_gist()
     
     while True:
         time.sleep(1500)
+        print("🔄 Backup automatico in corso...")
         backup_database_to_gist()
 
 # === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
