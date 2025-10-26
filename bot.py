@@ -35,8 +35,7 @@ TIPOLOGIE_INTERVENTO = [
 GRADI_PATENTE = ["I", "II", "III", "IIIE"]
 
 # Tipi mezzi predefiniti
-TIPI_MEZZO_PREDEFINITI = ["APS", "ABP", "AS", "AU", "CA", "AF"]
-
+TIPI_MEZZO_PREDEFINITI = ["APS TLF3", "ABP Daf", "A/TRID ML120E", "CA/PU Defender 110", "CA/PU Ranger Bosch.", "RI Motopompa Humbaur", "AF Polisoccorso", "FB Arimar"]
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # === DATABASE ===
@@ -109,21 +108,26 @@ def init_db():
 
     # Inserisci dati iniziali mezzi
     mezzi_iniziali = [
-        ('AB123CD', 'APS'),
-        ('EF456GH', 'ABP'),
-        ('IL789JK', 'AS'),
-        ('MN012PQ', 'AU')
+        ('26613', 'APS TLF3'),
+        ('24674', 'ABP Daf'),
+        ('26690', 'A/TRID ML120E'),
+        ('23377', 'CA/PU Defender 110')
+        ('29471', 'CA/PU Ranger Bosch.')
+        ('04901', 'RI Motopompa Humbaur')
+        ('4020', 'FB Arimar')
+        ('28946', 'AF Polisoccorso')
+        ('35', 'AV E-Doblò')
     ]
     for targa, tipo in mezzi_iniziali:
         c.execute('''INSERT OR IGNORE INTO mezzi (targa, tipo) VALUES (?, ?)''', (targa, tipo))
 
-    # Inserisci alcuni vigili di esempio
+    # Inserisce vigili di base: (nome, cognome, qualifica, grado_patente, patente_nautica, saf, tpss, atp)
     vigili_iniziali = [
-        ('Mario', 'Rossi', 'CSV', 'III', 1, 0, 1, 0),
-        ('Luca', 'Bianchi', 'VV', 'II', 0, 1, 0, 1),
-        ('Giuseppe', 'Verdi', 'CSV', 'IIIE', 1, 1, 0, 0),
-        ('Andrea', 'Neri', 'VV', 'I', 0, 0, 1, 0),
-        ('Paolo', 'Gialli', 'CSV', 'II', 1, 0, 0, 1)
+        ('Rudi', 'Caverio', 'VV', 'IIIE', 0, 1, 0, 0),
+        ('Simone', 'Maxenti', 'VV', 'IIIE', 1, 0, 1, 1),
+        ('Gabriele', 'Redaelli', 'CSV', 'IIIE', 0, 1, 1, 1),
+        ('Mauro', 'Zappa', 'VV', 'II', 0, 0, 1, 0),
+        ('Giuseppe Felice', 'Baruffini', 'CSV', 'IIIE', 0, 0, 1, 0)
     ]
     for nome, cognome, qualifica, grado, nautica, saf, tpss, atp in vigili_iniziali:
         c.execute('''INSERT OR IGNORE INTO vigili 
