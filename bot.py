@@ -901,7 +901,12 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     error_count += 1
                     continue
                 
-                # Mappatura dei dati dal CSV
+                # MAPPATURA CORRETTA delle colonne:
+                # 0: Numero_Erba, 1: Rapporto_Como, 2: Progressivo, 3: Data_Uscita, 4: Data_Rientro
+                # 5: Mezzo_Targa, 6: Mezzo_Tipo, 7: Capopartenza, 8: Autista, 9: Partecipanti
+                # 10: Comune, 11: Via, 12: Indirizzo, 13: Tipologia, 14: Cambio_Personale
+                # 15: Km_Finali, 16: Litri_Riforniti
+                
                 num_erba = int(row[0]) if row[0] and row[0].isdigit() else get_prossimo_numero_erba()
                 rapporto_como = row[1]
                 progressivo_como = row[2]
@@ -932,6 +937,7 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         except:
                             data_rientro = None
                 
+                # MAPPATURA CORRETTA - QUESTA È LA CHIAVE!
                 dati = {
                     'numero_erba': num_erba,
                     'rapporto_como': rapporto_como,
@@ -942,11 +948,16 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'mezzo_tipo': row[6],
                     'capopartenza': row[7],
                     'autista': row[8],
-                    'indirizzo': row[10] if len(row) > 10 else '',
-                    'tipologia': row[11] if len(row) > 11 else '',
-                    'cambio_personale': row[12].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 12 else False,
-                    'km_finali': int(row[13]) if len(row) > 13 and row[13] and row[13].isdigit() else None,
-                    'litri_riforniti': int(row[14]) if len(row) > 14 and row[14] and row[14].isdigit() else None,
+                    # CORREZIONE: Comune è alla colonna 10, Via alla 11
+                    'comune': row[10] if len(row) > 10 else '',
+                    'via': row[11] if len(row) > 11 else '',
+                    # Indirizzo è alla colonna 12
+                    'indirizzo': row[12] if len(row) > 12 else '',
+                    # Tipologia è alla colonna 13
+                    'tipologia': row[13] if len(row) > 13 else '',
+                    'cambio_personale': row[14].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 14 else False,
+                    'km_finali': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
+                    'litri_riforniti': int(row[16]) if len(row) > 16 and row[16] and row[16].isdigit() else None,
                     'partecipanti': []  # I partecipanti non sono importati dal CSV
                 }
                 
