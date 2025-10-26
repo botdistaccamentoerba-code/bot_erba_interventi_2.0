@@ -35,7 +35,7 @@ TIPOLOGIE_INTERVENTO = [
 GRADI_PATENTE = ["I", "II", "III", "IIIE"]
 
 # Tipi mezzi predefiniti
-TIPI_MEZZO_PREDEFINITI = ["APS TLF3", "ABP Daf", "A/TRID ML120E", "CA/PU Defender 110", "CA/PU Ranger Bosch.", "RI Motopompa Humbaur", "AF Polisoccorso", "FB Arimar"]
+TIPI_MEZZO_PREDEFINITI = ["APS TLF3", "ABP Daf", "A/TRID ML120E", "CA/PU Defender 110", "CA/PU Ranger Bosch.", "RI Motopompa Humbaur", "AF Polisoccorso", "FB Arimar", "AV E-Doblò", "Mezzo sostitutivo"]
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # === DATABASE ===
@@ -111,12 +111,13 @@ def init_db():
         ('26613', 'APS TLF3'),
         ('24674', 'ABP Daf'),
         ('26690', 'A/TRID ML120E'),
-        ('23377', 'CA/PU Defender 110')
-        ('29471', 'CA/PU Ranger Bosch.')
-        ('04901', 'RI Motopompa Humbaur')
-        ('4020', 'FB Arimar')
-        ('28946', 'AF Polisoccorso')
-        ('35', 'AV E-Doblò')
+        ('23377', 'CA/PU Defender 110'),
+        ('29471', 'CA/PU Ranger Bosch.'),
+        ('04901', 'RI Motopompa Humbaur'),
+        ('4020', 'FB Arimar'),
+        ('28946', 'AF Polisoccorso'),
+        ('35682', 'AV E-Doblò'),
+        ('90117', 'Mezzo sostitutivo')
     ]
     for targa, tipo in mezzi_iniziali:
         c.execute('''INSERT OR IGNORE INTO mezzi (targa, tipo) VALUES (?, ?)''', (targa, tipo))
