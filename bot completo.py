@@ -25,17 +25,68 @@ ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 GIST_ID = os.environ.get('GIST_ID')
 
-# Tipologie di intervento predefinite
+# Tipologie di intervento da tenere
 TIPOLOGIE_INTERVENTO = [
-    "Incendio", "Incidente stradale", "Soccorso tecnico", "Allagamento",
-    "Fuoriuscita gas", "Recupero animali"
+    "27"
+    "Apertura porte e finestre"
+    "Ascensore bloccato",
+    "Assistenza attività di Protezione Civile e Sanitarie", 
+    "Assistenza TSO",
+    "Bonifica insetti",
+    "Crollo parziale di elementi strutturali",
+    "Danni d'acqua in genere",
+    "Fuoriuscita di acqua per rotttura di tubazioni, canali e simili",
+    "Esplosione",
+    "Frane",
+    "Fuga Gas",
+    "Guasto elettrico",
+    "Incendio/fuoco controllato",
+    "Incendio abitazione",
+    "Incendio Autovettura",
+    "Incendio Boschivo",
+    "Incendio Canna Fumaria",
+    "Incendio Capannone",
+    "Incendio Cascina",
+    "Incendio generico",
+    "Incendio sterpaglie",
+    "Incendio Tetto",
+    "Incidente Aereo",
+    "Incidente stradale",
+    "Infortunio sul lavoro",
+    "Palo pericolante",
+    "Recupero animali morti",
+    "Recupero / assistenza veicoli",
+    "Recupero merci e beni",
+    "Recupero Salma",
+    "Ricerca Persona (SAR)",
+    "Rimozione ostacoli non dovuti al traffico",
+    "Salvataggio animali",
+    "Servizio Assistenza Generico",
+    "Smontaggio controllato di elementi costruttivi",
+    "Soccorso Persona",
+    "Sopralluoghi e verifiche di stabilità edifici e manufatti",
+    "Sopralluogo per incendio",
+    "Sversamenti",
+    "Taglio Pianta",
+    "Tentato suicidio"     
 ]
 
 # Gradi patente
 GRADI_PATENTE = ["I", "II", "III", "IIIE"]
 
 # Tipi mezzi predefiniti
-TIPI_MEZZO_PREDEFINITI = ["APS", "ABP", "AS", "AU", "CA", "AF"]
+TIPI_MEZZO_PREDEFINITI = [
+    ('26613', 'APS TLF3'),
+    ('24674', 'ABP Daf'),
+    ('26690', 'A/TRID ML120E'),
+    ('23377', 'CA/PU Defender 110'),
+    ('29471', 'CA/PU Ranger Bosch.'),
+    ('04901', 'RI Motopompa Humbaur'),
+    ('4020', 'FB Arimar'),
+    ('28946', 'AF Polisoccorso'),
+    ('35682', 'AV E-Doblò'),
+    ('90117', 'Mezzo sostitutivo')    
+]
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -109,21 +160,28 @@ def init_db():
 
     # Inserisci dati iniziali mezzi
     mezzi_iniziali = [
-        ('AB123CD', 'APS'),
-        ('EF456GH', 'ABP'),
-        ('IL789JK', 'AS'),
-        ('MN012PQ', 'AU')
+            ('26613', 'APS TLF3'),
+            ('24674', 'ABP Daf'),
+            ('26690', 'A/TRID ML120E'),
+            ('23377', 'CA/PU Defender 110'),
+            ('29471', 'CA/PU Ranger Bosch.'),
+            ('04901', 'RI Motopompa Humbaur'),
+            ('4020', 'FB Arimar'),
+            ('28946', 'AF Polisoccorso'),
+            ('35682', 'AV E-Doblò'),
+            ('90117', 'Mezzo sostitutivo')    
+
     ]
     for targa, tipo in mezzi_iniziali:
         c.execute('''INSERT OR IGNORE INTO mezzi (targa, tipo) VALUES (?, ?)''', (targa, tipo))
 
     # Inserisci alcuni vigili di esempio
     vigili_iniziali = [
-        ('Mario', 'Rossi', 'CSV', 'III', 1, 0, 1, 0),
-        ('Luca', 'Bianchi', 'VV', 'II', 0, 1, 0, 1),
-        ('Giuseppe', 'Verdi', 'CSV', 'IIIE', 1, 1, 0, 0),
-        ('Andrea', 'Neri', 'VV', 'I', 0, 0, 1, 0),
-        ('Paolo', 'Gialli', 'CSV', 'II', 1, 0, 0, 1)
+        ('Rudi', 'Caverio', 'VV', 'IIIE', 0, 1, 0, 0),
+        ('Simone', 'Maxenti', 'VV', 'IIIE', 1, 0, 1, 1),
+        ('Gabriele', 'Redaelli', 'CSV', 'IIIE', 0, 1, 1, 1),
+        ('Mauro', 'Zappa', 'VV', 'II', 0, 0, 1, 0),
+        ('Giuseppe Felice', 'Baruffini', 'CSV', 'IIIE', 0, 0, 1, 0)
     ]
     for nome, cognome, qualifica, grado, nautica, saf, tpss, atp in vigili_iniziali:
         c.execute('''INSERT OR IGNORE INTO vigili 
