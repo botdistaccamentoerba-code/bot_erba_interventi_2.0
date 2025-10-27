@@ -25,10 +25,10 @@ ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 GIST_ID = os.environ.get('GIST_ID')
 
-# Tipologie di intervento predefinite
+# Tipologie di intervento da tenere
 TIPOLOGIE_INTERVENTO = [
-    "27"
-    "Apertura porte e finestre"
+    "27",
+    "Apertura porte e finestre",
     "Ascensore bloccato",
     "Assistenza attività di Protezione Civile e Sanitarie", 
     "Assistenza TSO",
@@ -68,14 +68,26 @@ TIPOLOGIE_INTERVENTO = [
     "Sopralluogo per incendio",
     "Sversamenti",
     "Taglio Pianta",
-    "Tentato suicidio" 
+    "Tentato suicidio"     
 ]
 
 # Gradi patente
 GRADI_PATENTE = ["I", "II", "III", "IIIE"]
 
 # Tipi mezzi predefiniti
-TIPI_MEZZO_PREDEFINITI = ["APS TLF3", "ABP Daf", "A/TRID ML120E", "CA/PU Defender 110", "CA/PU Ranger Bosch.", "RI Motopompa Humbaur", "AF Polisoccorso", "FB Arimar", "AV E-Doblò", "Mezzo sostitutivo"]
+TIPI_MEZZO_PREDEFINITI = [
+    ('26613', 'APS TLF3'),
+    ('24674', 'ABP Daf'),
+    ('26690', 'A/TRID ML120E'),
+    ('23377', 'CA/PU Defender 110'),
+    ('29471', 'CA/PU Ranger Bosch.'),
+    ('04901', 'RI Motopompa Humbaur'),
+    ('4020', 'FB Arimar'),
+    ('28946', 'AF Polisoccorso'),
+    ('35682', 'AV E-Doblò'),
+    ('90117', 'Mezzo sostitutivo')    
+]
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # === DATABASE ===
@@ -148,21 +160,22 @@ def init_db():
 
     # Inserisci dati iniziali mezzi
     mezzi_iniziali = [
-        ('26613', 'APS TLF3'),
-        ('24674', 'ABP Daf'),
-        ('26690', 'A/TRID ML120E'),
-        ('23377', 'CA/PU Defender 110'),
-        ('29471', 'CA/PU Ranger Bosch.'),
-        ('04901', 'RI Motopompa Humbaur'),
-        ('4020', 'FB Arimar'),
-        ('28946', 'AF Polisoccorso'),
-        ('35682', 'AV E-Doblò'),
-        ('90117', 'Mezzo sostitutivo')
+            ('26613', 'APS TLF3'),
+            ('24674', 'ABP Daf'),
+            ('26690', 'A/TRID ML120E'),
+            ('23377', 'CA/PU Defender 110'),
+            ('29471', 'CA/PU Ranger Bosch.'),
+            ('04901', 'RI Motopompa Humbaur'),
+            ('4020', 'FB Arimar'),
+            ('28946', 'AF Polisoccorso'),
+            ('35682', 'AV E-Doblò'),
+            ('90117', 'Mezzo sostitutivo')    
+
     ]
     for targa, tipo in mezzi_iniziali:
         c.execute('''INSERT OR IGNORE INTO mezzi (targa, tipo) VALUES (?, ?)''', (targa, tipo))
 
-    # Inserisce vigili di base: (nome, cognome, qualifica, grado_patente, patente_nautica, saf, tpss, atp)
+    # Inserisci vigili di base
     vigili_iniziali = [
         ('Rudi', 'Caverio', 'VV', 'IIIE', 0, 1, 0, 0),
         ('Simone', 'Maxenti', 'VV', 'IIIE', 1, 0, 1, 1),
@@ -171,10 +184,13 @@ def init_db():
         ('Giuseppe Felice', 'Baruffini', 'CSV', 'IIIE', 0, 0, 1, 0)
     ]
     for nome, cognome, qualifica, grado, nautica, saf, tpss, atp in vigili_iniziali:
-        c.execute('''INSERT OR IGNORE INTO vigili 
-                    (nome, cognome, qualifica, grado_patente_terrestre, patente_nautica, saf, tpss, atp) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
-                    (nome, cognome, qualifica, grado, nautica, saf, tpss, atp))
+        # Controlla se il vigile esiste già per evitare duplicati
+        c.execute('''SELECT id FROM vigili WHERE nome = ? AND cognome = ?''', (nome, cognome))
+        if not c.fetchone():
+            c.execute('''INSERT INTO vigili 
+                        (nome, cognome, qualifica, grado_patente_terrestre, patente_nautica, saf, tpss, atp) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
+                        (nome, cognome, qualifica, grado, nautica, saf, tpss, atp))
 
     conn.commit()
     conn.close()
@@ -522,7 +538,7 @@ def get_anni_disponibili():
 def get_vigili_attivi():
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
-    c.execute('''SELECT id, nome, cognome, qualifica FROM vigili WHERE attivo = 1 ORDER BY cognome, nome''')
+    c.execute('''SELECT DISTINCT id, nome, cognome, qualifica FROM vigili WHERE attivo = 1 ORDER BY cognome, nome''')
     result = c.fetchall()
     conn.close()
     return result
@@ -538,7 +554,7 @@ def get_vigile_by_id(vigile_id):
 def get_mezzi_attivi():
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
-    c.execute('''SELECT targa, tipo FROM mezzi WHERE attivo = 1 ORDER BY tipo''')
+    c.execute('''SELECT DISTINCT targa, tipo FROM mezzi WHERE attivo = 1 ORDER BY tipo''')
     result = c.fetchall()
     conn.close()
     return result
@@ -546,7 +562,7 @@ def get_mezzi_attivi():
 def get_tutti_vigili():
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
-    c.execute('''SELECT * FROM vigili ORDER BY cognome, nome''')
+    c.execute('''SELECT DISTINCT * FROM vigili ORDER BY cognome, nome''')
     result = c.fetchall()
     conn.close()
     return result
@@ -554,7 +570,7 @@ def get_tutti_vigili():
 def get_tutti_mezzi():
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
-    c.execute('''SELECT * FROM mezzi ORDER BY tipo, targa''')
+    c.execute('''SELECT DISTINCT * FROM mezzi ORDER BY tipo, targa''')
     result = c.fetchall()
     conn.close()
     return result
@@ -811,7 +827,8 @@ def crea_tastiera_fisica(user_id):
     tastiera = [
         [KeyboardButton("➕ Nuovo Intervento"), KeyboardButton("📋 Ultimi Interventi")],
         [KeyboardButton("📊 Statistiche"), KeyboardButton("🔍 Cerca Rapporto")],
-        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("🆘 Help")]
+        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("🔄 Reset")],
+        [KeyboardButton("🆘 Help")]
     ]
 
     if is_admin(user_id):
@@ -834,7 +851,22 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         file = await context.bot.get_file(document.file_id)
         file_content = await file.download_as_bytearray()
-        csv_content = file_content.decode('utf-8').splitlines()
+        
+        # Prova diverse codifiche
+        encodings = ['utf-8', 'latin-1', 'windows-1252', 'iso-8859-1', 'cp1252']
+        csv_content = None
+        
+        for encoding in encodings:
+            try:
+                csv_content = file_content.decode(encoding).splitlines()
+                print(f"✅ File decodificato con encoding: {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if csv_content is None:
+            await update.message.reply_text("❌ Impossibile decodificare il file. Usa un encoding UTF-8 valido.")
+            return
         
         reader = csv.reader(csv_content)
         headers = next(reader)  # Salta l'intestazione
@@ -849,8 +881,13 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     error_count += 1
                     continue
                 
-                # Mappatura dei dati dal CSV
-                num_erba = int(row[0]) if row[0] else get_prossimo_numero_erba()
+                # MAPPATURA CORRETTA delle colonne:
+                # 0: Numero_Erba, 1: Rapporto_Como, 2: Progressivo, 3: Data_Uscita, 4: Data_Rientro
+                # 5: Mezzo_Targa, 6: Mezzo_Tipo, 7: Capopartenza, 8: Autista, 9: Partecipanti
+                # 10: Comune, 11: Via, 12: Indirizzo, 13: Tipologia, 14: Cambio_Personale
+                # 15: Km_Finali, 16: Litri_Riforniti
+                
+                num_erba = int(row[0]) if row[0] and row[0].isdigit() else get_prossimo_numero_erba()
                 rapporto_como = row[1]
                 progressivo_como = row[2]
                 
@@ -860,10 +897,27 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     skipped_count += 1
                     continue
                 
-                # Gestione date
-                data_uscita = datetime.strptime(row[3], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
-                data_rientro = datetime.strptime(row[4], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
+                # Gestione date - più flessibile
+                try:
+                    data_uscita = datetime.strptime(row[3], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    # Prova formato alternativo
+                    try:
+                        data_uscita = datetime.strptime(row[3], '%d/%m/%Y').strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        data_uscita = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
+                data_rientro = None
+                if row[4]:
+                    try:
+                        data_rientro = datetime.strptime(row[4], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        try:
+                            data_rientro = datetime.strptime(row[4], '%d/%m/%Y').strftime('%Y-%m-%d %H:%M:%S')
+                        except:
+                            data_rientro = None
+                
+                # MAPPATURA CORRETTA - QUESTA È LA CHIAVE!
                 dati = {
                     'numero_erba': num_erba,
                     'rapporto_como': rapporto_como,
@@ -874,11 +928,16 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'mezzo_tipo': row[6],
                     'capopartenza': row[7],
                     'autista': row[8],
-                    'indirizzo': row[10],
-                    'tipologia': row[11],
-                    'cambio_personale': row[12] == 'Sì',
-                    'km_finali': int(row[13]) if row[13] else None,
-                    'litri_riforniti': int(row[14]) if row[14] else None,
+                    # CORREZIONE: Comune è alla colonna 10, Via alla 11
+                    'comune': row[10] if len(row) > 10 else '',
+                    'via': row[11] if len(row) > 11 else '',
+                    # Indirizzo è alla colonna 12
+                    'indirizzo': row[12] if len(row) > 12 else '',
+                    # Tipologia è alla colonna 13
+                    'tipologia': row[13] if len(row) > 13 else '',
+                    'cambio_personale': row[14].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 14 else False,
+                    'km_finali': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
+                    'litri_riforniti': int(row[16]) if len(row) > 16 and row[16] and row[16].isdigit() else None,
                     'partecipanti': []  # I partecipanti non sono importati dal CSV
                 }
                 
@@ -888,6 +947,7 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except Exception as e:
                 error_count += 1
+                print(f"Errore nell'importazione riga: {e}")
                 continue
         
         await update.message.reply_text(
@@ -901,6 +961,7 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante l'importazione: {str(e)}")
+        print(f"Errore dettagliato: {e}")
 
 async def gestisci_file_vigili_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1726,9 +1787,8 @@ async def gestisci_via(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['nuovo_intervento']['indirizzo'] = indirizzo_completo
     
     context.user_data['fase'] = 'tipologia_intervento'
-    await mostra_selezione_tipologia(update, context)
-
-async def mostra_selezione_tipologia(update, context):
+    
+    # FIX: Inserimento diretto della tastiera tipologie - ELIMINA CONFLITTI
     keyboard = []
     for tipologia in TIPOLOGIE_INTERVENTO:
         keyboard.append([InlineKeyboardButton(tipologia, callback_data=f"tipologia_{tipologia}")])
@@ -1738,18 +1798,11 @@ async def mostra_selezione_tipologia(update, context):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if hasattr(update, 'message'):
-        await update.message.reply_text(
-            "🚨 **TIPOLOGIA INTERVENTO**\n\n"
-            "Seleziona la tipologia di intervento:",
-            reply_markup=reply_markup
-        )
-    else:
-        await update.edit_message_text(
-            "🚨 **TIPOLOGIA INTERVENTO**\n\n"
-            "Seleziona la tipologia di intervento:",
-            reply_markup=reply_markup
-        )
+    await update.message.reply_text(
+        "🚨 **TIPOLOGIA INTERVENTO**\n\n"
+        "Seleziona la tipologia di intervento:",
+        reply_markup=reply_markup
+    )
 
 async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
@@ -2642,6 +2695,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 📊 Statistiche - Statistiche annuali
 • 🔍 Cerca Rapporto - Cerca interventi per rapporto Como
 • 📤 Estrazione Dati - Estrai dati in formato CSV
+• 🔄 Reset - Reset dell'interfaccia in caso di problemi
 
 👨‍💻 **ADMIN:**
 • 👥 Gestisci Richieste - Approva nuovi utenti e gestisci utenti
@@ -2661,10 +2715,27 @@ Gli admin possono importare dati inviando un file CSV con la stessa formattazion
 
     await update.message.reply_text(help_text, reply_markup=crea_tastiera_fisica(update.effective_user.id))
 
+# === RESET COMANDO ===
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando reset iperpottente che funziona come /start"""
+    user_id = update.effective_user.id
+    
+    # 🔥 RESET IPERPOTENTE - cancella TUTTO
+    for key in list(context.user_data.keys()):
+        del context.user_data[key]
+    
+    await start(update, context)
+    await update.message.reply_text("🔄 **Reset completo effettuato!**\n\nTutti i flussi attivi sono stati cancellati. Il bot è stato riavviato.")
+
 # === GESTIONE MESSAGGI PRINCIPALE ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
+
+    # 🔥 NUOVO: Reset iperpottente con qualsiasi comando che inizia con /reset
+    if text.lower().startswith('/reset'):
+        await reset_command(update, context)
+        return
 
     if not is_user_approved(user_id):
         if text == "🚀 Richiedi Accesso":
@@ -2734,10 +2805,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Se non siamo in una fase attiva, gestisci i comandi principali
     if text == "➕ Nuovo Intervento":
-        # RESET di eventuali stati precedenti
-        for key in ['nuovo_intervento', 'fase', 'vigili_da_selezionare', 'vigili_selezionati']:
-            if key in context.user_data:
-                del context.user_data[key]
+        # RESET IPERPOTENTE di tutti gli stati
+        for key in list(context.user_data.keys()):
+            del context.user_data[key]
         await avvia_nuovo_intervento(update, context)
     
     elif text == "📋 Ultimi Interventi":
@@ -2781,6 +2851,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "📤 Estrazione Dati":
         await estrazione_dati(update, context)
+    
+    elif text == "🔄 Reset":
+        await reset_command(update, context)
+        return
     
     elif text == "🔍 Cerca Rapporto":
         # RESET stato ricerca precedente
@@ -3070,6 +3144,7 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
