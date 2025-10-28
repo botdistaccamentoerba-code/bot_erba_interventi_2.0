@@ -3,7 +3,7 @@ problemi:
 -csv stabile-
 -reset → /start-
 -anno rapporto in richiesta intervento-
-csv esportazione degli utenti che sono approvati (id telegram, nome, cognome) con possibilità di ripristino in stato caserma
+-csv esportazione degli utenti che sono approvati (id telegram, nome, cognome) con possibilità di ripristino in stato caserma-
 
 duplicati in nuovo intervento e modifica intervento
 
