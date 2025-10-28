@@ -771,7 +771,7 @@ def crea_tastiera_fisica(user_id):
     tastiera = [
         [KeyboardButton("➕ Nuovo Intervento"), KeyboardButton("📋 Ultimi Interventi")],
         [KeyboardButton("📊 Statistiche"), KeyboardButton("🔍 Cerca Rapporto")],
-        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("/start"), KeyboardButton("🆘 Help")]
+        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("/start 🔄"), KeyboardButton("🆘 Help")]
     ]
 
     if is_admin(user_id):
@@ -2786,7 +2786,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📤 Estrazione Dati":
         await estrazione_dati(update, context)
     
-    elif text == "/start":
+    elif text == "/start 🔄":
         await start(update, context)
     
     elif text == "🔍 Cerca Rapporto":
