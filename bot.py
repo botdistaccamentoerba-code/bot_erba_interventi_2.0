@@ -794,7 +794,22 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         file = await context.bot.get_file(document.file_id)
         file_content = await file.download_as_bytearray()
-        csv_content = file_content.decode('utf-8').splitlines()
+        
+        # Prova diverse codifiche
+        encodings = ['utf-8', 'latin-1', 'windows-1252', 'iso-8859-1', 'cp1252']
+        csv_content = None
+        
+        for encoding in encodings:
+            try:
+                csv_content = file_content.decode(encoding).splitlines()
+                print(f"✅ File decodificato con encoding: {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if csv_content is None:
+            await update.message.reply_text("❌ Impossibile decodificare il file. Usa un encoding UTF-8 valido.")
+            return
         
         reader = csv.reader(csv_content)
         headers = next(reader)  # Salta l'intestazione
@@ -809,8 +824,13 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     error_count += 1
                     continue
                 
-                # Mappatura dei dati dal CSV
-                num_erba = int(row[0]) if row[0] else get_prossimo_numero_erba()
+                # MAPPATURA CORRETTA delle colonne:
+                # 0: Numero_Erba, 1: Rapporto_Como, 2: Progressivo, 3: Data_Uscita, 4: Data_Rientro
+                # 5: Mezzo_Targa, 6: Mezzo_Tipo, 7: Capopartenza, 8: Autista, 9: Partecipanti
+                # 10: Comune, 11: Via, 12: Indirizzo, 13: Tipologia, 14: Cambio_Personale
+                # 15: Km_Finali, 16: Litri_Riforniti
+                
+                num_erba = int(row[0]) if row[0] and row[0].isdigit() else get_prossimo_numero_erba()
                 rapporto_como = row[1]
                 progressivo_como = row[2]
                 
@@ -820,10 +840,27 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     skipped_count += 1
                     continue
                 
-                # Gestione date
-                data_uscita = datetime.strptime(row[3], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
-                data_rientro = datetime.strptime(row[4], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
+                # Gestione date - più flessibile
+                try:
+                    data_uscita = datetime.strptime(row[3], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    # Prova formato alternativo
+                    try:
+                        data_uscita = datetime.strptime(row[3], '%d/%m/%Y').strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        data_uscita = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
+                data_rientro = None
+                if row[4]:
+                    try:
+                        data_rientro = datetime.strptime(row[4], '%d/%m/%Y %H:%M').strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        try:
+                            data_rientro = datetime.strptime(row[4], '%d/%m/%Y').strftime('%Y-%m-%d %H:%M:%S')
+                        except:
+                            data_rientro = None
+                
+                # MAPPATURA CORRETTA - QUESTA È LA CHIAVE!
                 dati = {
                     'numero_erba': num_erba,
                     'rapporto_como': rapporto_como,
@@ -834,11 +871,16 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'mezzo_tipo': row[6],
                     'capopartenza': row[7],
                     'autista': row[8],
-                    'indirizzo': row[10],
-                    'tipologia': row[11],
-                    'cambio_personale': row[12] == 'Sì',
-                    'km_finali': int(row[13]) if row[13] else None,
-                    'litri_riforniti': int(row[14]) if row[14] else None,
+                    # CORREZIONE: Comune è alla colonna 10, Via alla 11
+                    'comune': row[10] if len(row) > 10 else '',
+                    'via': row[11] if len(row) > 11 else '',
+                    # Indirizzo è alla colonna 12
+                    'indirizzo': row[12] if len(row) > 12 else '',
+                    # Tipologia è alla colonna 13
+                    'tipologia': row[13] if len(row) > 13 else '',
+                    'cambio_personale': row[14].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 14 else False,
+                    'km_finali': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
+                    'litri_riforniti': int(row[16]) if len(row) > 16 and row[16] and row[16].isdigit() else None,
                     'partecipanti': []  # I partecipanti non sono importati dal CSV
                 }
                 
@@ -848,6 +890,7 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except Exception as e:
                 error_count += 1
+                print(f"Errore nell'importazione riga: {e}")
                 continue
         
         await update.message.reply_text(
@@ -861,6 +904,7 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante l'importazione: {str(e)}")
+        print(f"Errore dettagliato: {e}")
 
 async def gestisci_file_vigili_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
