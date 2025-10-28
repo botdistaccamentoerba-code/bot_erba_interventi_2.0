@@ -27,48 +27,8 @@ GIST_ID = os.environ.get('GIST_ID')
 
 # Tipologie di intervento predefinite
 TIPOLOGIE_INTERVENTO = [
-    "27",
-    "Apertura porte e finestre",
-    "Ascensore bloccato",
-    "Assistenza attività di Protezione Civile e Sanitarie", 
-    "Assistenza TSO",
-    "Bonifica insetti",
-    "Crollo parziale di elementi strutturali",
-    "Danni d'acqua in genere",
-    "Fuoriuscita di acqua per rotttura di tubazioni, canali e simili",
-    "Esplosione",
-    "Frane",
-    "Fuga Gas",
-    "Guasto elettrico",
-    "Incendio/fuoco controllato",
-    "Incendio abitazione",
-    "Incendio Autovettura",
-    "Incendio Boschivo",
-    "Incendio Canna Fumaria",
-    "Incendio Capannone",
-    "Incendio Cascina",
-    "Incendio generico",
-    "Incendio sterpaglie",
-    "Incendio Tetto",
-    "Incidente Aereo",
-    "Incidente stradale",
-    "Infortunio sul lavoro",
-    "Palo pericolante",
-    "Recupero animali morti",
-    "Recupero / assistenza veicoli",
-    "Recupero merci e beni",
-    "Recupero Salma",
-    "Ricerca Persona (SAR)",
-    "Rimozione ostacoli non dovuti al traffico",
-    "Salvataggio animali",
-    "Servizio Assistenza Generico",
-    "Smontaggio controllato di elementi costruttivi",
-    "Soccorso Persona",
-    "Sopralluoghi e verifiche di stabilità edifici e manufatti",
-    "Sopralluogo per incendio",
-    "Sversamenti",
-    "Taglio Pianta",
-    "Tentato suicidio"
+    "Incendio", "Incidente stradale", "Soccorso tecnico", "Allagamento",
+    "Fuoriuscita gas", "Recupero animali"
 ]
 
 # Gradi patente
@@ -811,7 +771,7 @@ def crea_tastiera_fisica(user_id):
     tastiera = [
         [KeyboardButton("➕ Nuovo Intervento"), KeyboardButton("📋 Ultimi Interventi")],
         [KeyboardButton("📊 Statistiche"), KeyboardButton("🔍 Cerca Rapporto")],
-        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("🔄 Reset")],
+        [KeyboardButton("📤 Estrazione Dati"), KeyboardButton("🔄 Riavvia Bot")],
         [KeyboardButton("🆘 Help")]
     ]
 
@@ -1602,18 +1562,8 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
         context.user_data['fase'] = 'selezione_capopartenza'
         
         vigili = get_vigili_attivi()
-        # FIX: Rimuovi duplicati usando un set
-        vigili_unici = []
-        visti = set()
-        for vigile in vigili:
-            vigile_id, nome, cognome, qualifica = vigile
-            chiave = f"{nome}_{cognome}"
-            if chiave not in visti:
-                visti.add(chiave)
-                vigili_unici.append(vigile)
-        
         keyboard = []
-        for vigile_id, nome, cognome, qualifica in vigili_unici:
+        for vigile_id, nome, cognome, qualifica in vigili:
             keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1635,18 +1585,8 @@ async def gestisci_cambio_personale(update: Update, context: ContextTypes.DEFAUL
     context.user_data['fase'] = 'selezione_capopartenza'
     
     vigili = get_vigili_attivi()
-    # FIX: Rimuovi duplicati usando un set
-    vigili_unici = []
-    visti = set()
-    for vigile in vigili:
-        vigile_id, nome, cognome, qualifica = vigile
-        chiave = f"{nome}_{cognome}"
-        if chiave not in visti:
-            visti.add(chiave)
-            vigili_unici.append(vigile)
-    
     keyboard = []
-    for vigile_id, nome, cognome, qualifica in vigili_unici:
+    for vigile_id, nome, cognome, qualifica in vigili:
         keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1672,19 +1612,10 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
     context.user_data['fase'] = 'selezione_autista'
     
     vigili = get_vigili_attivi()
-    # FIX: Rimuovi duplicati e escludi capopartenza già selezionato
-    vigili_unici = []
-    visti = set()
-    for vigile in vigili:
-        vigile_id_a, nome, cognome, qualifica = vigile
-        chiave = f"{nome}_{cognome}"
-        if chiave not in visti and vigile_id_a != context.user_data['nuovo_intervento']['capopartenza_id']:
-            visti.add(chiave)
-            vigili_unici.append(vigile)
-    
     keyboard = []
-    for vigile_id_a, nome, cognome, qualifica in vigili_unici:
-        keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id_a}")])
+    for vigile_id, nome, cognome, qualifica in vigili:
+        if vigile_id != context.user_data['nuovo_intervento']['capopartenza_id']:
+            keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -1717,19 +1648,12 @@ async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAU
     context.user_data['nuovo_intervento']['partecipanti'] = partecipanti_attuali
     context.user_data['fase'] = 'selezione_vigili'
     
-    # Prepara lista vigili da selezionare ESCLUDENDO quelli già selezionati e rimuovendo duplicati
+    # Prepara lista vigili da selezionare ESCLUDENDO quelli già selezionati
     tutti_vigili = get_vigili_attivi()
-    vigili_da_selezionare = []
-    visti = set()
-    
-    for vigile in tutti_vigili:
-        vigile_id_v, nome, cognome, qualifica = vigile
-        chiave = f"{nome}_{cognome}"
-        if vigile_id_v not in context.user_data['nuovo_intervento']['partecipanti'] and chiave not in visti:
-            visti.add(chiave)
-            vigili_da_selezionare.append(vigile)
-    
-    context.user_data['vigili_da_selezionare'] = vigili_da_selezionare
+    context.user_data['vigili_da_selezionare'] = [
+        vigile for vigile in tutti_vigili 
+        if vigile[0] not in context.user_data['nuovo_intervento']['partecipanti']
+    ]
     context.user_data['vigili_selezionati'] = []
     
     await mostra_selezione_vigili(query, context)
@@ -2192,7 +2116,7 @@ async def gestisci_progressivo_modifica(update: Update, context: ContextTypes.DE
     rapporto = context.user_data['modifica_intervento']['rapporto']
     anno = context.user_data['modifica_intervento']['anno']
     
-    # Cerca l'intervento specifico per anno
+    # Cerca l'intervento specifico per anno, rapporto e progressivo
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
     c.execute('''SELECT * FROM interventi 
@@ -2202,7 +2126,7 @@ async def gestisci_progressivo_modifica(update: Update, context: ContextTypes.DE
     conn.close()
     
     if not intervento:
-        await update.message.reply_text(f"❌ Intervento R{rapporto}/{progressivo} per l'anno {anno} non trovato.")
+        await update.message.reply_text(f"❌ Intervento R{rapporto}/{progressivo} dell'anno {anno} non trovato.")
         # Cleanup
         for key in ['modifica_intervento', 'fase_modifica']:
             if key in context.user_data:
@@ -2274,36 +2198,16 @@ async def gestisci_selezione_campo(update: Update, context: ContextTypes.DEFAULT
         
         elif campo == 'capopartenza':
             vigili = get_vigili_attivi()
-            # FIX: Rimuovi duplicati
-            vigili_unici = []
-            visti = set()
-            for vigile in vigili:
-                vigile_id, nome, cognome, qualifica = vigile
-                chiave = f"{nome}_{cognome}"
-                if chiave not in visti:
-                    visti.add(chiave)
-                    vigili_unici.append(vigile)
-            
             keyboard = []
-            for vigile_id, nome, cognome, qualifica in vigili_unici:
+            for vigile_id, nome, cognome, qualifica in vigili:
                 keyboard.append([InlineKeyboardButton(f"{cognome} {nome} ({qualifica})", callback_data=f"modcapo_{vigile_id}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("Seleziona il nuovo capopartenza:", reply_markup=reply_markup)
         
         elif campo == 'autista':
             vigili = get_vigili_attivi()
-            # FIX: Rimuovi duplicati
-            vigili_unici = []
-            visti = set()
-            for vigile in vigili:
-                vigile_id, nome, cognome, qualifica = vigile
-                chiave = f"{nome}_{cognome}"
-                if chiave not in visti:
-                    visti.add(chiave)
-                    vigili_unici.append(vigile)
-            
             keyboard = []
-            for vigile_id, nome, cognome, qualifica in vigili_unici:
+            for vigile_id, nome, cognome, qualifica in vigili:
                 keyboard.append([InlineKeyboardButton(f"{cognome} {nome} ({qualifica})", callback_data=f"modautista_{vigile_id}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("Seleziona il nuovo autista:", reply_markup=reply_markup)
@@ -2380,21 +2284,16 @@ async def gestisci_modifica_indirizzo(update: Update, context: ContextTypes.DEFA
         # Aggiorna il database
         rapporto = context.user_data['modifica_intervento']['rapporto']
         progressivo = context.user_data['modifica_intervento']['progressivo']
-        anno = context.user_data['modifica_intervento']['anno']
         
         try:
             # Aggiorna tutti e tre i campi: comune, via, indirizzo
-            conn = sqlite3.connect(DATABASE_NAME)
-            c = conn.cursor()
-            c.execute('''UPDATE interventi SET comune = ?, via = ?, indirizzo = ? 
-                         WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                         (comune, via, indirizzo_completo, rapporto, progressivo, anno))
-            conn.commit()
-            conn.close()
+            aggiorna_intervento(rapporto, progressivo, 'comune', comune)
+            aggiorna_intervento(rapporto, progressivo, 'via', via)
+            aggiorna_intervento(rapporto, progressivo, 'indirizzo', indirizzo_completo)
             
             await update.message.reply_text(
                 f"✅ **INDIRIZZO AGGIORNATO!**\n\n"
-                f"Rapporto: R{rapporto}/{progressivo} - {anno}\n"
+                f"Rapporto: R{rapporto}/{progressivo}\n"
                 f"Nuovo comune: {comune}\n"
                 f"Nuova via: {via}\n"
                 f"Indirizzo completo: {indirizzo_completo}"
@@ -2417,12 +2316,11 @@ async def gestisci_modifica_orari(update: Update, context: ContextTypes.DEFAULT_
         campo = context.user_data['tipo_orario']
         rapporto = context.user_data['modifica_intervento']['rapporto']
         progressivo = context.user_data['modifica_intervento']['progressivo']
-        anno = context.user_data['modifica_intervento']['anno']
         
         # CONTROLLO: Verifica coerenza temporale
         if campo == 'data_rientro':
             # Recupera data uscita per controllo
-            intervento = context.user_data['modifica_intervento']['dati']
+            intervento = get_intervento_by_rapporto(rapporto, progressivo)
             if intervento:
                 data_uscita_db = intervento[4]  # data_uscita è al 4° campo
                 data_uscita = datetime.strptime(data_uscita_db, '%Y-%m-%d %H:%M:%S')
@@ -2438,17 +2336,11 @@ async def gestisci_modifica_orari(update: Update, context: ContextTypes.DEFAULT_
         
         # Aggiorna il database
         campo_db = 'data_uscita' if campo == 'data_uscita' else 'data_rientro'
-        conn = sqlite3.connect(DATABASE_NAME)
-        c = conn.cursor()
-        c.execute(f'''UPDATE interventi SET {campo_db} = ? 
-                     WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                     (nuovo_valore_db, rapporto, progressivo, anno))
-        conn.commit()
-        conn.close()
+        aggiorna_intervento(rapporto, progressivo, campo_db, nuovo_valore_db)
         
         await update.message.reply_text(
             f"✅ **INTERVENTO MODIFICATO!**\n\n"
-            f"Rapporto: R{rapporto}/{progressivo} - {anno}\n"
+            f"Rapporto: R{rapporto}/{progressivo}\n"
             f"Campo aggiornato: {campo}\n"
             f"Nuovo valore: {data_ora.strftime('%d/%m/%Y %H:%M')}"
         )
@@ -2479,7 +2371,6 @@ async def gestisci_valore_modifica_bottoni(update: Update, context: ContextTypes
     
     rapporto = context.user_data['modifica_intervento']['rapporto']
     progressivo = context.user_data['modifica_intervento']['progressivo']
-    anno = context.user_data['modifica_intervento']['anno']
     campo_selezionato = context.user_data['modifica_intervento']['campo_selezionato']
     
     try:
@@ -2497,29 +2388,16 @@ async def gestisci_valore_modifica_bottoni(update: Update, context: ContextTypes
             # Per il mezzo, aggiorna sia targa che tipo
             mezzi = get_mezzi_attivi()
             tipo_mezzo = next((tipo for targa_m, tipo in mezzi if targa_m == valore), "")
-            
-            conn = sqlite3.connect(DATABASE_NAME)
-            c = conn.cursor()
-            c.execute('''UPDATE interventi SET mezzo_targa = ?, mezzo_tipo = ? 
-                         WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                         (valore, tipo_mezzo, rapporto, progressivo, anno))
-            conn.commit()
-            conn.close()
-            
+            aggiorna_intervento(rapporto, progressivo, 'mezzo_targa', valore)
+            aggiorna_intervento(rapporto, progressivo, 'mezzo_tipo', tipo_mezzo)
             valore_mostrato = f"{valore} - {tipo_mezzo}"
         else:
-            conn = sqlite3.connect(DATABASE_NAME)
-            c = conn.cursor()
-            c.execute(f'''UPDATE interventi SET {campo_db} = ? 
-                         WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                         (valore, rapporto, progressivo, anno))
-            conn.commit()
-            conn.close()
+            aggiorna_intervento(rapporto, progressivo, campo_db, valore)
             valore_mostrato = valore
         
         await query.edit_message_text(
             f"✅ **INTERVENTO MODIFICATO!**\n\n"
-            f"Rapporto: R{rapporto}/{progressivo} - {anno}\n"
+            f"Rapporto: R{rapporto}/{progressivo}\n"
             f"Campo aggiornato: {campo_selezionato}\n"
             f"Nuovo valore: {valore_mostrato}"
         )
@@ -2537,7 +2415,6 @@ async def gestisci_valore_modifica(update: Update, context: ContextTypes.DEFAULT
     campo = context.user_data['modifica_intervento']['campo_selezionato']
     rapporto = context.user_data['modifica_intervento']['rapporto']
     progressivo = context.user_data['modifica_intervento']['progressivo']
-    anno = context.user_data['modifica_intervento']['anno']
     
     try:
         # Conversione per campi specifici
@@ -2553,17 +2430,11 @@ async def gestisci_valore_modifica(update: Update, context: ContextTypes.DEFAULT
         }
         
         # Aggiorna il database
-        conn = sqlite3.connect(DATABASE_NAME)
-        c = conn.cursor()
-        c.execute(f'''UPDATE interventi SET {campi_db[campo]} = ? 
-                     WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                     (nuovo_valore, rapporto, progressivo, anno))
-        conn.commit()
-        conn.close()
+        aggiorna_intervento(rapporto, progressivo, campi_db[campo], nuovo_valore)
         
         await update.message.reply_text(
             f"✅ **INTERVENTO MODIFICATO!**\n\n"
-            f"Rapporto: R{rapporto}/{progressivo} - {anno}\n"
+            f"Rapporto: R{rapporto}/{progressivo}\n"
             f"Campo aggiornato: {campo}\n"
             f"Nuovo valore: {nuovo_valore}"
         )
@@ -2800,7 +2671,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 📊 Statistiche - Statistiche annuali
 • 🔍 Cerca Rapporto - Cerca interventi per rapporto Como
 • 📤 Estrazione Dati - Estrai dati in formato CSV
-• 🔄 Reset - Resetta il bot in caso di errori
+• 🔄 Riavvia Bot - Reset del bot in caso di errori
 
 👨‍💻 **ADMIN:**
 • 👥 Gestisci Richieste - Approva nuovi utenti e gestisci utenti
@@ -2828,11 +2699,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_user_approved(user_id):
         if text == "🚀 Richiedi Accesso":
             await start(update, context)
-        return
-
-    # Gestione pulsante RESET
-    if text == "🔄 Reset":
-        await start(update, context)
         return
 
     # Controlla se siamo in una fase di inserimento dati
@@ -2887,19 +2753,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tipologia = text.strip()
         rapporto = context.user_data['modifica_intervento']['rapporto']
         progressivo = context.user_data['modifica_intervento']['progressivo']
-        anno = context.user_data['modifica_intervento']['anno']
-        
-        conn = sqlite3.connect(DATABASE_NAME)
-        c = conn.cursor()
-        c.execute('''UPDATE interventi SET tipologia = ? 
-                     WHERE rapporto_como = ? AND progressivo_como = ? AND strftime('%Y', data_uscita) = ?''',
-                     (tipologia, rapporto, progressivo, anno))
-        conn.commit()
-        conn.close()
-        
+        aggiorna_intervento(rapporto, progressivo, 'tipologia', tipologia)
         await update.message.reply_text(
             f"✅ **TIPOLOGIA AGGIORNATA!**\n\n"
-            f"Rapporto: R{rapporto}/{progressivo} - {anno}\n"
+            f"Rapporto: R{rapporto}/{progressivo}\n"
             f"Nuova tipologia: {tipologia}"
         )
         # Cleanup
@@ -2957,6 +2814,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "📤 Estrazione Dati":
         await estrazione_dati(update, context)
+    
+    elif text == "🔄 Riavvia Bot":
+        # RESET completo di tutti gli stati
+        for key in list(context.user_data.keys()):
+            del context.user_data[key]
+        await start(update, context)
+        return
     
     elif text == "🔍 Cerca Rapporto":
         # RESET stato ricerca precedente
