@@ -190,6 +190,10 @@ def init_db():
     # Inserisce vigili di base
     vigili_iniziali = [
         ('Rudi', 'Caverio', 'VV', 'IIIE', 0, 1, 0, 0),
+        ('Simone', 'Maxenti', 'VV', 'IIIE', 1, 0, 1, 1),
+        ('Gabriele', 'Redaelli', 'CSV', 'IIIE', 0, 1, 1, 1),
+        ('Mauro', 'Zappa', 'VV', 'II', 0, 0, 1, 0),
+        ('Giuseppe Felice', 'Baruffini', 'CSV', 'IIIE', 0, 0, 1, 0)
     ]
     for nome, cognome, qualifica, grado, nautica, saf, tpss, atp in vigili_iniziali:
         c.execute('''INSERT OR IGNORE INTO vigili 
@@ -420,13 +424,13 @@ def inserisci_intervento(dati):
                      dati['data_uscita_completa'], dati.get('data_rientro_completa'),
                      dati['mezzo_targa'], dati['mezzo_tipo'], dati['capopartenza'], 
                      dati['autista'], dati.get('comune', ''), dati.get('via', ''), 
-                     dati.get('indirizzo', ''), dati.get('tipologia', ''), 
-                     dati.get('cambio_personale', False), dati.get('km_finali'), 
-                     dati.get('litri_riforniti')))
+                     dados.get('indirizzo', ''), dados.get('tipologia', ''), 
+                     dados.get('cambio_personale', False), dados.get('km_finali'), 
+                     dados.get('litri_riforniti')))
         
         intervento_id = c.lastrowid
         
-        for vigile_id in dati.get('partecipanti', []):
+        for vigile_id in dados.get('partecipanti', []):
             c.execute('''INSERT INTO partecipanti (intervento_id, vigile_id) VALUES (?, ?)''',
                       (intervento_id, vigile_id))
         
@@ -733,18 +737,24 @@ def backup_scheduler():
         time.sleep(1500)
         print("🔄 Backup automatico in corso...")
         backup_database_to_gist()
-# === SISTEMA BACKUP AUTOMATICO CSV ===
-def invia_backup_interventi_anno_corrente(context):
-    """Invia il backup degli interventi dell'anno corrente agli admin"""
+
+# === SISTEMA INVIO AUTOMATICO CSV ===
+async def invio_csv_automatico_interventi(context: ContextTypes.DEFAULT_TYPE, anno_corrente=None):
+    """Funzione per inviare automaticamente CSV degli interventi"""
     try:
-        anno_corrente = datetime.now().year
+        if anno_corrente is None:
+            anno_corrente = datetime.now().year
+        
+        print(f"🔄 Invio automatico CSV interventi per l'anno {anno_corrente}")
+        
+        # Ottieni gli interventi dell'anno corrente
         interventi = get_interventi_per_anno(str(anno_corrente))
         
         if not interventi:
-            print("⚠️ Nessun intervento trovato per il backup")
+            print("❌ Nessun intervento trovato per l'anno corrente")
             return
         
-        # Crea il CSV
+        # Crea il file CSV
         output = StringIO()
         writer = csv.writer(output)
         
@@ -797,30 +807,54 @@ def invia_backup_interventi_anno_corrente(context):
         
         csv_bytes = csv_data.encode('utf-8')
         csv_file = BytesIO(csv_bytes)
-        csv_file.name = f"interventi_backup_{anno_corrente}_{datetime.now().strftime('%Y%m%d')}.csv"
+        csv_file.name = f"interventi_backup_{anno_corrente}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
         
-        # Messaggio di accompagnamento
-        messaggio = (
-            f"📤 **BACKUP AUTOMATICO INTERVENTI {anno_corrente}**\n\n"
-            f"📅 Data backup: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-            f"📊 Interventi totali: {len(interventi)}\n"
-            f"📁 File: {csv_file.name}\n\n"
-            f"_Backup generato automaticamente dal sistema_"
+        # Invia al super user ogni giorno
+        super_user_id = 1816045269
+        await context.bot.send_document(
+            chat_id=super_user_id,
+            document=csv_file,
+            filename=csv_file.name,
+            caption=f"📊 **BACKUP AUTOMATICO INTERVENTI {anno_corrente}**\n\n"
+                   f"File CSV contenente tutti gli interventi dell'anno {anno_corrente}.\n"
+                   f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         )
+        print(f"✅ CSV interventi inviato al super user {super_user_id}")
         
-        return csv_file, messaggio
+        # Reinizializza il file per inviarlo agli altri admin
+        csv_file.seek(0)
+        
+        # Invia agli altri admin ogni domenica
+        oggi = datetime.now()
+        if oggi.weekday() == 6:  # 6 = Domenica
+            altri_admin = [admin_id for admin_id in ADMIN_IDS if admin_id != super_user_id]
+            for admin_id in altri_admin:
+                try:
+                    await context.bot.send_document(
+                        chat_id=admin_id,
+                        document=csv_file,
+                        filename=csv_file.name,
+                        caption=f"📊 **BACKUP SETTIMANALE INTERVENTI {anno_corrente}**\n\n"
+                               f"File CSV contenente tutti gli interventi dell'anno {anno_corrente}.\n"
+                               f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                    )
+                    print(f"✅ CSV interventi inviato all'admin {admin_id}")
+                    csv_file.seek(0)  # Riposiziona all'inizio per il prossimo invio
+                except Exception as e:
+                    print(f"❌ Errore nell'invio a admin {admin_id}: {e}")
         
     except Exception as e:
-        print(f"❌ Errore durante la creazione backup interventi: {str(e)}")
-        return None, None
+        print(f"❌ Errore durante l'invio automatico CSV interventi: {e}")
 
-def invia_backup_status_caserma(context):
-    """Invia il backup dello status caserma (vigili + mezzi)"""
+async def invio_csv_automatico_status(context: ContextTypes.DEFAULT_TYPE):
+    """Funzione per inviare automaticamente CSV dello status caserma"""
     try:
+        print("🔄 Invio automatico CSV status caserma")
+        
         vigili = get_tutti_vigili()
         mezzi = get_tutti_mezzi()
         
-        # Crea il CSV
+        # Crea il file CSV
         output = StringIO()
         writer = csv.writer(output)
         
@@ -854,131 +888,56 @@ def invia_backup_status_caserma(context):
         
         csv_bytes = csv_data.encode('utf-8')
         csv_file = BytesIO(csv_bytes)
-        csv_file.name = f"status_caserma_backup_{datetime.now().strftime('%Y%m%d')}.csv"
+        csv_file.name = f"status_caserma_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
         
-        # Messaggio di accompagnamento
-        messaggio = (
-            f"🏠 **BACKUP AUTOMATICO STATUS CASERMA**\n\n"
-            f"📅 Data backup: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-            f"👥 Vigili totali: {len(vigili)}\n"
-            f"🚒 Mezzi totali: {len(mezzi)}\n"
-            f"📁 File: {csv_file.name}\n\n"
-            f"_Backup generato automaticamente dal sistema_"
-        )
-        
-        return csv_file, messaggio
+        # Invia a tutti gli admin
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_document(
+                    chat_id=admin_id,
+                    document=csv_file,
+                    filename=csv_file.name,
+                    caption="🏠 **BACKUP STATUS CASERMA**\n\n"
+                           "File CSV contenente l'elenco completo di vigili e mezzi.\n"
+                           f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                )
+                print(f"✅ CSV status caserma inviato all'admin {admin_id}")
+                csv_file.seek(0)  # Riposiziona all'inizio per il prossimo invio
+            except Exception as e:
+                print(f"❌ Errore nell'invio status a admin {admin_id}: {e}")
         
     except Exception as e:
-        print(f"❌ Errore durante la creazione backup status caserma: {str(e)}")
-        return None, None
+        print(f"❌ Errore durante l'invio automatico CSV status: {e}")
 
-async def backup_giornaliero_super_user(context: ContextTypes.DEFAULT_TYPE):
-    """Backup giornaliero per il super user (23:55)"""
-    try:
-        print("🔔 Backup giornaliero super user in corso...")
-        
-        csv_file, messaggio = invia_backup_interventi_anno_corrente(context)
-        if csv_file and messaggio:
-            # Invia solo al super user
-            super_user_id = 1816045269
-            await context.bot.send_document(
-                chat_id=super_user_id,
-                document=csv_file,
-                filename=csv_file.name,
-                caption=messaggio
-            )
-            print(f"✅ Backup giornaliero inviato al super user {super_user_id}")
-        else:
-            print("❌ Errore nella generazione backup giornaliero")
+async def scheduler_invio_automatico(context: ContextTypes.DEFAULT_TYPE):
+    """Scheduler per gli invii automatici"""
+    print("🔄 Scheduler invio automatico CSV avviato")
+    
+    while True:
+        try:
+            now = datetime.now()
             
-    except Exception as e:
-        print(f"❌ Errore durante backup giornaliero: {str(e)}")
+            # Controlla se è l'ora programmata (23:55)
+            if now.hour == 23 and now.minute == 55:
+                print("⏰ Ora di invio automatico CSV raggiunta")
+                
+                # Invio interventi al super user (ogni giorno)
+                await invio_csv_automatico_interventi(context)
+                
+                # Invio status caserma (ogni 4 mesi a fine mese)
+                if now.month in [3, 6, 9, 12] and now.day >= 25:  # Fine marzo, giugno, settembre, dicembre
+                    await invio_csv_automatico_status(context)
+                
+                # Aspetta 2 minuti per evitare esecuzioni multiple
+                await asyncio.sleep(120)
+            else:
+                # Controlla ogni minuto
+                await asyncio.sleep(60)
+                
+        except Exception as e:
+            print(f"❌ Errore nello scheduler: {e}")
+            await asyncio.sleep(60)
 
-async def backup_settimanale_admin(context: ContextTypes.DEFAULT_TYPE):
-    """Backup settimanale per tutti gli admin (domenica 23:55)"""
-    try:
-        print("🔔 Backup settimanale admin in corso...")
-        
-        csv_file, messaggio = invia_backup_interventi_anno_corrente(context)
-        if csv_file and messaggio:
-            # Invia a tutti gli admin tranne il super user
-            for admin_id in ADMIN_IDS:
-                if admin_id != 1816045269:  # Escludi super user
-                    try:
-                        await context.bot.send_document(
-                            chat_id=admin_id,
-                            document=csv_file,
-                            filename=csv_file.name,
-                            caption=messaggio
-                        )
-                        print(f"✅ Backup settimanale inviato all'admin {admin_id}")
-                    except Exception as e:
-                        print(f"❌ Errore invio a admin {admin_id}: {str(e)}")
-        else:
-            print("❌ Errore nella generazione backup settimanale")
-            
-    except Exception as e:
-        print(f"❌ Errore durante backup settimanale: {str(e)}")
-
-async def backup_trimestrale_status_caserma(context: ContextTypes.DEFAULT_TYPE):
-    """Backup status caserma ogni 4 mesi a fine mese (23:55)"""
-    try:
-        print("🔔 Backup trimestrale status caserma in corso...")
-        
-        csv_file, messaggio = invia_backup_status_caserma(context)
-        if csv_file and messaggio:
-            # Invia a tutti gli admin
-            for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_document(
-                        chat_id=admin_id,
-                        document=csv_file,
-                        filename=csv_file.name,
-                        caption=messaggio
-                    )
-                    print(f"✅ Backup status caserma inviato all'admin {admin_id}")
-                except Exception as e:
-                    print(f"❌ Errore invio status a admin {admin_id}: {str(e)}")
-        else:
-            print("❌ Errore nella generazione backup status caserma")
-            
-    except Exception as e:
-        print(f"❌ Errore durante backup status caserma: {str(e)}")
-
-def setup_backup_scheduler(application):
-    """Configura gli scheduler per i backup automatici"""
-    print("🔄 Configurazione scheduler backup automatici...")
-    
-    # Backup GIORNALIERO per super user (23:55 ogni giorno)
-    application.job_queue.run_daily(
-        backup_giornaliero_super_user,
-        time=time(hour=23, minute=55, second=0),
-        days=(0, 1, 2, 3, 4, 5, 6),  # Tutti i giorni
-        name="backup_giornaliero_super_user"
-    )
-    
-    # Backup SETTIMANALE per admin (domenica 23:55)
-    application.job_queue.run_daily(
-        backup_settimanale_admin,
-        time=time(hour=23, minute=55, second=0),
-        days=(6,),  # Solo domenica (0=lunedì, 6=domenica)
-        name="backup_settimanale_admin"
-    )
-    
-    # Backup TRIMESTRALE status caserma (ultimo giorno del mese ogni 4 mesi, 23:55)
-    # Mesi: Marzo (3), Luglio (7), Novembre (11)
-    application.job_queue.run_monthly(
-        backup_trimestrale_status_caserma,
-        when=time(hour=23, minute=55, second=0),
-        day=31,  # Ultimo giorno del mese
-        months=(3, 7, 11),  # Marzo, Luglio, Novembre
-        name="backup_trimestrale_status_caserma"
-    )
-    
-    print("✅ Scheduler backup automatici configurati!")
-    print("   📅 Super User: Backup giornaliero interventi (23:55)")
-    print("   📅 Admin: Backup settimanale interventi (domenica 23:55)")
-    print("   📅 Tutti Admin: Backup status caserma trimestrale (Mar/Lug/Nov - 23:55)")
 # === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
 def keep_alive_aggressive():
     service_url = "https://bot-erba-interventi-2-0.onrender.com"
@@ -3515,8 +3474,15 @@ def main():
     
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # === CONFIGURAZIONE SCHEDULER BACKUP AUTOMATICO CSV ===
-    setup_backup_scheduler(application)
+    # Aggiungi lo scheduler per gli invii automatici CSV
+    job_queue = application.job_queue
+    if job_queue:
+        job_queue.run_repeating(
+            lambda context: asyncio.create_task(scheduler_invio_automatico(context)),
+            interval=60,  # Controlla ogni minuto
+            first=10
+        )
+        print("✅ Scheduler invio automatico CSV attivato! Controllo ogni minuto")
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -3532,10 +3498,7 @@ def main():
     print("👥 Admin configurati:", len(ADMIN_IDS))
     print("⏰ Ping automatici ogni 5 minuti - Zero spin down! 🚀")
     print("💾 Backup automatici ogni 25 minuti - Dati al sicuro! 🛡️")
-    print("📤 Backup CSV automatici configurati:")
-    print("   📅 Super User: Backup giornaliero interventi (23:55)")
-    print("   📅 Admin: Backup settimanale interventi (domenica 23:55)") 
-    print("   📅 Tutti Admin: Backup status caserma trimestrale (Mar/Lug/Nov - 23:55)")
+    print("📤 Invio automatico CSV: Super User ogni giorno 23:55, Admin domenica 23:55, Status ogni 4 mesi")
     
     application.run_polling()
 
