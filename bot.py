@@ -2844,6 +2844,55 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, BadRequest) and "Query is too old" in str(context.error):
         return
     print(f"❌ Errore: {context.error}")
+# === HANDLER START ===
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    # Pulisci context.user_data
+    for key in list(context.user_data.keys()):
+        del context.user_data[key]
+    
+    # Registra l'utente se non esiste
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute('''INSERT OR IGNORE INTO utenti (user_id, username, nome, ruolo) 
+                 VALUES (?, ?, ?, 'in_attesa')''', 
+                 (user_id, update.effective_user.username, user_name))
+    conn.commit()
+    conn.close()
+
+    # Se l'utente non è approvato, invia richiesta agli admin
+    if not is_user_approved(user_id):
+        richieste = get_richieste_in_attesa()
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    admin_id,
+                    f"🆕 NUOVA RICHIESTA ACCESSO\n\nUser: {user_name}\nID: {user_id}\nUsername: @{update.effective_user.username}\nRichieste in attesa: {len(richieste)}"
+                )
+            except Exception as e:
+                print(f"Errore nell'invio notifica admin: {e}")
+
+        await update.message.reply_text(
+            "🔄 **RICHIESTA DI ACCESSO INVIATA**\n\n"
+            "La tua richiesta è stata inviata agli amministratori.\n"
+            "Attendi l'approvazione per accedere a tutte le funzioni del bot.\n\n"
+            "Riceverai una notifica quando il tuo account verrà approvato.",
+            reply_markup=crea_tastiera_fisica(user_id)
+        )
+        return
+
+    # Utente approvato - mostra welcome message
+    if is_admin(user_id):
+        welcome_text = f"👨‍💻 **BENVENUTO ADMIN {user_name.upper()}!**\n\nAccesso completo a tutte le funzioni di gestione."
+    else:
+        welcome_text = f"👤 **BENVENUTO {user_name}!**\n\nAccesso alle funzioni operative del bot."
+
+    await update.message.reply_text(
+        welcome_text,
+        reply_markup=crea_tastiera_fisica(user_id)
+    )
 
 # === MAIN ===
 def main():
