@@ -6,8 +6,9 @@ problemi:
 -csv esportazione degli utenti che sono approvati (id telegram, nome, cognome) con possibilità di ripristino in stato caserma-
 -problema via → causa elenco degli interventi (può gestire max 40 inline e limite callback → successivo-precedente? ha lasciato altro? → ACCORCIO CALLBACK) → da problemi d'insermineto, va solo altro → messo aposto-
 
--csv automatico-
+csv automatico
+import csv stabile
 -duplicati in nuovo intervento e modifica intervento-→ LI RISOLVO METTENDO TUTTI TRANNE UNO NELLA LISTA DA CSV- togliere i nomi tranne il mio
- 
+
 
 redeploy mensile
