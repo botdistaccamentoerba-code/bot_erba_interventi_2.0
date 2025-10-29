@@ -5,7 +5,7 @@ problemi:
 -anno rapporto in richiesta intervento-
 -csv esportazione degli utenti che sono approvati (id telegram, nome, cognome) con possibilità di ripristino in stato caserma-
 
-duplicati in nuovo intervento e modifica intervento
+-duplicati in nuovo intervento e modifica intervento-→ LI RISOLVO METTENDO TUTTI TRANNE UNO NELLA LISTA DA CSV
 
 redeploy mensile
-problema via → modifico bot problematico con le modifiche? → causa possibile elenco degli interventi 
+problema via → modifico bot problematico con le modifiche? → causa possibile elenco degli interventi (può gestire max 40 inline → successivo-precedente? ha lasciato altro?)
