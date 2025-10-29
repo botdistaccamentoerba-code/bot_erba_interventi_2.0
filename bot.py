@@ -424,13 +424,13 @@ def inserisci_intervento(dati):
                      dati['data_uscita_completa'], dati.get('data_rientro_completa'),
                      dati['mezzo_targa'], dati['mezzo_tipo'], dati['capopartenza'], 
                      dati['autista'], dati.get('comune', ''), dati.get('via', ''), 
-                     dados.get('indirizzo', ''), dados.get('tipologia', ''), 
-                     dados.get('cambio_personale', False), dados.get('km_finali'), 
-                     dados.get('litri_riforniti')))
+                     dati.get('indirizzo', ''), dati.get('tipologia', ''), 
+                     dati.get('cambio_personale', False), dati.get('km_finali'), 
+                     dati.get('litri_riforniti')))
         
         intervento_id = c.lastrowid
         
-        for vigile_id in dados.get('partecipanti', []):
+        for vigile_id in dati.get('partecipanti', []):
             c.execute('''INSERT INTO partecipanti (intervento_id, vigile_id) VALUES (?, ?)''',
                       (intervento_id, vigile_id))
         
