@@ -4,8 +4,7 @@ problemi:
 -reset → /start-
 -anno rapporto in richiesta intervento-
 -csv esportazione degli utenti che sono approvati (id telegram, nome, cognome) con possibilità di ripristino in stato caserma-
-
--duplicati in nuovo intervento e modifica intervento-→ LI RISOLVO METTENDO TUTTI TRANNE UNO NELLA LISTA DA CSV
+problema via → causa elenco degli interventi (può gestire max 40 inline e limite callback → successivo-precedente? ha lasciato altro? → ACCORCIO CALLBACK)
 
 redeploy mensile
-problema via → modifico bot problematico con le modifiche? → causa possibile elenco degli interventi (può gestire max 40 inline → successivo-precedente? ha lasciato altro?)
+-duplicati in nuovo intervento e modifica intervento-→ LI RISOLVO METTENDO TUTTI TRANNE UNO NELLA LISTA DA CSV
