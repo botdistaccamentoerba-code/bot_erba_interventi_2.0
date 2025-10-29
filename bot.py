@@ -25,10 +25,50 @@ ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 GIST_ID = os.environ.get('GIST_ID')
 
-# Tipologie di intervento predefinite
+# NUOVE TIPOLOGIE DI INTERVENTO - AGGIORNATE
 TIPOLOGIE_INTERVENTO = [
-    "Incendio", "Incidente stradale", "Soccorso tecnico", "Allagamento",
-    "Fuoriuscita gas", "Recupero animali"
+    "27",
+    "Apertura porte e finestre",
+    "Ascensore bloccato",
+    "Assistenza attività di Protezione Civile e Sanitarie", 
+    "Assistenza TSO",
+    "Bonifica insetti",
+    "Crollo parziale di elementi strutturali",
+    "Danni d'acqua in genere",
+    "Fuoriuscita di acqua per rottura di tubazioni, canali e simili",
+    "Esplosione",
+    "Frane",
+    "Fuga Gas",
+    "Guasto elettrico",
+    "Incendio/fuoco controllato",
+    "Incendio abitazione",
+    "Incendio Autovettura",
+    "Incendio Boschivo",
+    "Incendio Canna Fumaria",
+    "Incendio Capannone",
+    "Incendio Cascina",
+    "Incendio generico",
+    "Incendio sterpaglie",
+    "Incendio Tetto",
+    "Incidente Aereo",
+    "Incidente stradale",
+    "Infortunio sul lavoro",
+    "Palo pericolante",
+    "Recupero animali morti",
+    "Recupero / assistenza veicoli",
+    "Recupero merci e beni",
+    "Recupero Salma",
+    "Ricerca Persona (SAR)",
+    "Rimozione ostacoli non dovuti al traffico",
+    "Salvataggio animali",
+    "Servizio Assistenza Generico",
+    "Smontaggio controllato di elementi costruttivi",
+    "Soccorso Persona",
+    "Sopralluoghi e verifiche di stabilità edifici e manufatti",
+    "Sopralluogo per incendio",
+    "Sversamenti",
+    "Taglio Pianta",
+    "Tentato suicidio"
 ]
 
 # Gradi patente
@@ -359,14 +399,14 @@ def inserisci_intervento(dati):
                     (dati['rapporto_como'], dati['progressivo_como'], dati['numero_erba'],
                      dati['data_uscita_completa'], dati.get('data_rientro_completa'),
                      dati['mezzo_targa'], dati['mezzo_tipo'], dati['capopartenza'], 
-                     dati['autista'], dati.get('comune', ''), dati.get('via', ''), 
-                     dati.get('indirizzo', ''), dati.get('tipologia', ''), 
-                     dati.get('cambio_personale', False), dati.get('km_finali'), 
-                     dati.get('litri_riforniti')))
+                     dati['autista'], dati.get('comune', ''), dados.get('via', ''), 
+                     dados.get('indirizzo', ''), dados.get('tipologia', ''), 
+                     dados.get('cambio_personale', False), dados.get('km_finali'), 
+                     dados.get('litri_riforniti')))
         
         intervento_id = c.lastrowid
         
-        for vigile_id in dati.get('partecipanti', []):
+        for vigile_id in dados.get('partecipanti', []):
             c.execute('''INSERT INTO partecipanti (intervento_id, vigile_id) VALUES (?, ?)''',
                       (intervento_id, vigile_id))
         
@@ -1693,12 +1733,8 @@ async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT
         context.user_data['fase'] = 'selezione_capopartenza'
         
         vigili = get_vigili_attivi()
-        # MODIFICA: Rimuovi duplicati usando un set
-        vigili_unici = list(set(vigili))
-        vigili_unici.sort(key=lambda x: (x[2], x[1]))  # Ordina per cognome, nome
-        
         keyboard = []
-        for vigile_id, nome, cognome, qualifica in vigili_unici:
+        for vigile_id, nome, cognome, qualifica in vigili:
             keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1720,12 +1756,8 @@ async def gestisci_cambio_personale(update: Update, context: ContextTypes.DEFAUL
     context.user_data['fase'] = 'selezione_capopartenza'
     
     vigili = get_vigili_attivi()
-    # MODIFICA: Rimuovi duplicati usando un set
-    vigili_unici = list(set(vigili))
-    vigili_unici.sort(key=lambda x: (x[2], x[1]))  # Ordina per cognome, nome
-    
     keyboard = []
-    for vigile_id, nome, cognome, qualifica in vigili_unici:
+    for vigile_id, nome, cognome, qualifica in vigili:
         keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1751,14 +1783,10 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
     context.user_data['fase'] = 'selezione_autista'
     
     vigili = get_vigili_attivi()
-    # MODIFICA: Rimuovi duplicati e escludi capopartenza già selezionato
-    vigili_unici = list(set(vigili))
-    vigili_unici = [v for v in vigili_unici if v[0] != vigile_id]  # Escludi capopartenza
-    vigili_unici.sort(key=lambda x: (x[2], x[1]))  # Ordina per cognome, nome
-    
     keyboard = []
-    for vigile_id, nome, cognome, qualifica in vigili_unici:
-        keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id}")])
+    for vigile_id, nome, cognome, qualifica in vigili:
+        if vigile_id != context.user_data['nuovo_intervento']['capopartenza_id']:
+            keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -1793,10 +1821,8 @@ async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAU
     
     # Prepara lista vigili da selezionare ESCLUDENDO quelli già selezionati
     tutti_vigili = get_vigili_attivi()
-    # MODIFICA: Rimuovi duplicati e escludi quelli già selezionati
-    vigili_unici = list(set(tutti_vigili))
     context.user_data['vigili_da_selezionare'] = [
-        vigile for vigile in vigili_unici 
+        vigile for vigile in tutti_vigili 
         if vigile[0] not in context.user_data['nuovo_intervento']['partecipanti']
     ]
     context.user_data['vigili_selezionati'] = []
@@ -1876,28 +1902,58 @@ async def gestisci_via(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['nuovo_intervento']['indirizzo'] = indirizzo_completo
     
     context.user_data['fase'] = 'tipologia_intervento'
-    await mostra_selezione_tipologia(update, context)
+    await mostra_selezione_tipologia_paginata(update, context)
 
-async def mostra_selezione_tipologia(update, context):
+# === SISTEMA DI SELEZIONE TIPOLOGIA PAGINATO ===
+def crea_tastiera_tipologie_paginata(page=0, items_per_page=8):
+    """Crea una tastiera paginata per le tipologie"""
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    
+    tipologie_pagina = TIPOLOGIE_INTERVENTO[start_idx:end_idx]
+    
     keyboard = []
-    for tipologia in TIPOLOGIE_INTERVENTO:
-        keyboard.append([InlineKeyboardButton(tipologia, callback_data=f"tipologia_{tipologia}")])
     
-    # Aggiungi il tasto "Altro" per inserire una tipologia personalizzata
-    keyboard.append([InlineKeyboardButton("✏️ Altro...", callback_data="tipologia_altro")])
+    # Aggiungi le tipologie della pagina corrente
+    for tipologia in tipologie_pagina:
+        # Tronca il testo se troppo lungo per il bottone
+        testo_bottone = tipologia[:30] + "..." if len(tipologia) > 30 else tipologia
+        keyboard.append([InlineKeyboardButton(testo_bottone, callback_data=f"tipologia_{tipologia}")])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Aggiungi bottoni di navigazione
+    nav_buttons = []
+    
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Precedente", callback_data=f"tipopage_{page-1}"))
+    
+    if end_idx < len(TIPOLOGIE_INTERVENTO):
+        nav_buttons.append(InlineKeyboardButton("Successivo ➡️", callback_data=f"tipopage_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Aggiungi sempre il bottone "Altro" per tipologie personalizzate
+    keyboard.append([InlineKeyboardButton("✏️ Inserisci Tipologia Personalizzata", callback_data="tipologia_altro")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+async def mostra_selezione_tipologia_paginata(update, context, page=0):
+    """Mostra la selezione tipologie con paginazione"""
+    reply_markup = crea_tastiera_tipologie_paginata(page)
+    
+    totale_pagine = (len(TIPOLOGIE_INTERVENTO) + 7) // 8  # 8 items per pagina
+    messaggio_paginazione = f" - Pagina {page+1} di {totale_pagine}" if totale_pagine > 1 else ""
     
     if hasattr(update, 'message'):
         await update.message.reply_text(
-            "🚨 **TIPOLOGIA INTERVENTO**\n\n"
-            "Seleziona la tipologia di intervento:",
+            f"🚨 **TIPOLOGIA INTERVENTO**{messaggio_paginazione}\n\n"
+            "Seleziona una tipologia dalla lista o inseriscine una personalizzata:",
             reply_markup=reply_markup
         )
     else:
         await update.edit_message_text(
-            "🚨 **TIPOLOGIA INTERVENTO**\n\n"
-            "Seleziona la tipologia di intervento:",
+            f"🚨 **TIPOLOGIA INTERVENTO**{messaggio_paginazione}\n\n"
+            "Seleziona una tipologia dalla lista o inseriscine una personalizzata:",
             reply_markup=reply_markup
         )
 
@@ -1909,7 +1965,12 @@ async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DE
         if "Query is too old" in str(e):
             return
     
-    if callback_data == "tipologia_altro":
+    if callback_data.startswith("tipopage_"):
+        # Gestione cambio pagina
+        page = int(callback_data.replace('tipopage_', ''))
+        await mostra_selezione_tipologia_paginata(query, context, page)
+    
+    elif callback_data == "tipologia_altro":
         context.user_data['fase'] = 'inserisci_tipologia_personalizzata'
         await query.edit_message_text(
             "✏️ **TIPOLOGIA PERSONALIZZATA**\n\n"
@@ -1921,6 +1982,7 @@ async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DE
         context.user_data['fase'] = 'km_finali'
         
         await query.edit_message_text(
+            f"✅ Tipologia selezionata: **{tipologia}**\n\n"
             "🛣️ **KM FINALI**\n\n"
             "Inserisci i km finali del mezzo (solo numeri):"
         )
@@ -1931,6 +1993,7 @@ async def gestisci_tipologia_personalizzata(update: Update, context: ContextType
     context.user_data['fase'] = 'km_finali'
     
     await update.message.reply_text(
+        f"✅ Tipologia personalizzata salvata: **{tipologia}**\n\n"
         "🛣️ **KM FINALI**\n\n"
         "Inserisci i km finali del mezzo (solo numeri):"
     )
@@ -1982,9 +2045,10 @@ async def mostra_riepilogo(update, context):
     for vigile_id in dati['partecipanti']:
         vigile = get_vigile_by_id(vigile_id)
         if vigile:
-            nome_completo = f"{vigile[1]} {vigile[2]}"
-            if nome_completo not in partecipanti_nomi:  # MODIFICA: Evita duplicati
-                partecipanti_nomi.append(nome_completo)
+            partecipanti_nomi.append(f"{vigile[1]} {vigile[2]}")
+    
+    # Rimuovi duplicati
+    partecipanti_nomi = list(dict.fromkeys(partecipanti_nomi))
     
     cambio_personale = "✅ Sì" if dati.get('cambio_personale', False) else "❌ No"
     km_finali = dati.get('km_finali', 'Non specificato')
@@ -2148,17 +2212,8 @@ async def mostra_lista_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     messaggio = "👥 **ELENCO COMPLETO VIGILI**\n\n"
-    # MODIFICA: Usa set per rimuovere duplicati
-    vigili_visti = set()
     for vigile in vigili:
         id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
-        
-        # Crea una chiave unica per evitare duplicati
-        chiave_vigile = (nome, cognome, qualifica)
-        if chiave_vigile in vigili_visti:
-            continue
-        vigili_visti.add(chiave_vigile)
-        
         status = "🟢" if attivo else "🔴"
         specialita = []
         if nautica: specialita.append("🛥️")
@@ -2362,35 +2417,24 @@ async def gestisci_selezione_campo(update: Update, context: ContextTypes.DEFAULT
         
         elif campo == 'capopartenza':
             vigili = get_vigili_attivi()
-            # MODIFICA: Rimuovi duplicati
-            vigili_unici = list(set(vigili))
-            vigili_unici.sort(key=lambda x: (x[2], x[1]))  # Ordina per cognome, nome
-            
             keyboard = []
-            for vigile_id, nome, cognome, qualifica in vigili_unici:
+            for vigile_id, nome, cognome, qualifica in vigili:
                 keyboard.append([InlineKeyboardButton(f"{cognome} {nome} ({qualifica})", callback_data=f"modcapo_{vigile_id}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("Seleziona il nuovo capopartenza:", reply_markup=reply_markup)
         
         elif campo == 'autista':
             vigili = get_vigili_attivi()
-            # MODIFICA: Rimuovi duplicati
-            vigili_unici = list(set(vigili))
-            vigili_unici.sort(key=lambda x: (x[2], x[1]))  # Ordina per cognome, nome
-            
             keyboard = []
-            for vigile_id, nome, cognome, qualifica in vigili_unici:
+            for vigile_id, nome, cognome, qualifica in vigili:
                 keyboard.append([InlineKeyboardButton(f"{cognome} {nome} ({qualifica})", callback_data=f"modautista_{vigile_id}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("Seleziona il nuovo autista:", reply_markup=reply_markup)
     
     elif campo == 'tipologia':
-        keyboard = []
-        for tipologia in TIPOLOGIE_INTERVENTO:
-            keyboard.append([InlineKeyboardButton(tipologia, callback_data=f"modtipologia_{tipologia}")])
-        keyboard.append([InlineKeyboardButton("✏️ Altro...", callback_data="modtipologia_altro")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("Seleziona la nuova tipologia:", reply_markup=reply_markup)
+        # Usa il sistema paginato anche per la modifica
+        context.user_data['fase_modifica'] = 'modifica_tipologia'
+        await mostra_selezione_tipologia_paginata(query, context, 0)
     
     elif campo == 'indirizzo':
         # MODIFICA: Per indirizzo, avvia il ciclo completo come nel nuovo intervento
@@ -2919,22 +2963,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif fase_modifica == 'modifica_indirizzo':
         await gestisci_modifica_indirizzo(update, context)
         return
-    elif fase_modifica == 'inserisci_tipologia':
-        # Gestione tipologia personalizzata in modifica
-        tipologia = text.strip()
-        rapporto = context.user_data['modifica_intervento']['rapporto']
-        progressivo = context.user_data['modifica_intervento']['progressivo']
-        aggiorna_intervento(rapporto, progressivo, 'tipologia', tipologia)
-        await update.message.reply_text(
-            f"✅ **TIPOLOGIA AGGIORNATA!**\n\n"
-            f"Rapporto: R{rapporto}/{progressivo}\n"
-            f"Nuova tipologia: {tipologia}"
-        )
-        # Cleanup
-        for key in ['modifica_intervento', 'fase_modifica']:
-            if key in context.user_data:
-                del context.user_data[key]
-        return
+    elif fase_modifica == 'modifica_tipologia':
+        # Gestione tipologia in modifica (usa lo stesso sistema paginato)
+        if text.startswith("/"):
+            # Se è un comando, gestiscilo normalmente
+            pass
+        else:
+            # Altrimenti è una tipologia personalizzata
+            tipologia = text.strip()
+            rapporto = context.user_data['modifica_intervento']['rapporto']
+            progressivo = context.user_data['modifica_intervento']['progressivo']
+            aggiorna_intervento(rapporto, progressivo, 'tipologia', tipologia)
+            await update.message.reply_text(
+                f"✅ **TIPOLOGIA AGGIORNATA!**\n\n"
+                f"Rapporto: R{rapporto}/{progressivo}\n"
+                f"Nuova tipologia: {tipologia}"
+            )
+            # Cleanup
+            for key in ['modifica_intervento', 'fase_modifica']:
+                if key in context.user_data:
+                    del context.user_data[key]
+            return
     
     # Se non siamo in una fase attiva, gestisci i comandi principali
     if text == "➕ Nuovo Intervento":
@@ -3102,6 +3151,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data.startswith("tipologia_"):
         await gestisci_tipologia_intervento(update, context, data)
+    
+    elif data.startswith("tipopage_"):
+        # Gestione paginazione tipologie
+        page = int(data.replace('tipopage_', ''))
+        await mostra_selezione_tipologia_paginata(query, context, page)
     
     elif data.startswith("rientro_"):
         await gestisci_data_rientro(update, context, data)
