@@ -20,6 +20,7 @@ from telegram.error import BadRequest, NetworkError
 DATABASE_NAME = 'interventi_vvf.db'
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_IDS = [1816045269, 653425963, 693843502, 6622015744]
+SUPER_ADMIN_ID = 1816045269  # ID del super admin per l'invio automatico
 
 # Configurazione backup GitHub
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
@@ -738,205 +739,139 @@ def backup_scheduler():
         print("🔄 Backup automatico in corso...")
         backup_database_to_gist()
 
-# === SISTEMA INVIO AUTOMATICO CSV ===
-async def invio_csv_automatico_interventi(context: ContextTypes.DEFAULT_TYPE, anno_corrente=None):
-    """Funzione per inviare automaticamente CSV degli interventi"""
+# === INVIO AUTOMATICO CSV AGLI ADMIN ===
+async def invia_csv_automatico_admin(context):
+    """Funzione per inviare automaticamente i CSV agli admin"""
     try:
-        if anno_corrente is None:
-            anno_corrente = datetime.now().year
+        # Crea i file CSV
+        files_to_send = []
         
-        print(f"🔄 Invio automatico CSV interventi per l'anno {anno_corrente}")
+        # 1. Interventi
+        interventi = get_ultimi_interventi(10000)
+        if interventi:
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro', 
+                           'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
+                           'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'])
+            
+            for intervento in interventi:
+                if len(intervento) >= 18:
+                    id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                    
+                    try:
+                        data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                    except:
+                        data_uscita_fmt = data_uscita
+                    
+                    try:
+                        data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+                    except:
+                        data_rientro_fmt = data_rientro or ''
+                    
+                    writer.writerow([
+                        num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+                        mezzo_targa, mezzo_tipo, capo, autista, comune, via, 
+                        indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
+                        km_finali or '', litri_riforniti or ''
+                    ])
+            
+            csv_data = output.getvalue()
+            output.close()
+            csv_bytes = csv_data.encode('utf-8')
+            files_to_send.append(('db_interventi.csv', csv_bytes))
         
-        # Ottieni gli interventi dell'anno corrente
-        interventi = get_interventi_per_anno(str(anno_corrente))
-        
-        if not interventi:
-            print("❌ Nessun intervento trovato per l'anno corrente")
-            return
-        
-        # Crea il file CSV
-        output = StringIO()
-        writer = csv.writer(output)
-        
-        writer.writerow([
-            'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro', 'Durata',
-            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 
-            'Comune', 'Via', 'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti', 'Data_Creazione'
-        ])
-        
-        for intervento in interventi:
-            if len(intervento) >= 18:
-                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
-                
-                conn = sqlite3.connect(DATABASE_NAME)
-                c = conn.cursor()
-                c.execute('''SELECT GROUP_CONCAT(v.nome || ' ' || v.cognome) 
-                             FROM partecipanti p 
-                             JOIN vigili v ON p.vigile_id = v.id 
-                             WHERE p.intervento_id = ?''', (id_int,))
-                partecipanti_result = c.fetchone()
-                partecipanti = partecipanti_result[0] if partecipanti_result and partecipanti_result[0] else ''
-                conn.close()
-                
-                durata = calcola_durata_intervento(data_uscita, data_rientro)
-                
-                try:
-                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
-                except:
-                    data_uscita_fmt = data_uscita
-                
-                try:
-                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
-                except:
-                    data_rientro_fmt = data_rientro or ''
-                
-                try:
-                    created_fmt = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if created_at else ''
-                except:
-                    created_fmt = created_at or ''
-                
+        # 2. Vigili
+        vigili = get_tutti_vigili()
+        if vigili:
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Nome', 'Cognome', 'Qualifica', 'Grado_Patente', 'Patente_Nautica', 'SAF', 'TPSS', 'ATP', 'Stato'])
+            
+            for vigile in vigili:
+                id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
                 writer.writerow([
-                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt, durata,
-                    mezzo_targa, mezzo_tipo, capo, autista, partecipanti, 
-                    comune, via, indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
-                    km_finali or '', litri_riforniti or '', created_fmt
+                    nome, cognome, qualifica, grado,
+                    1 if nautica else 0,
+                    1 if saf else 0,
+                    1 if tpss else 0,
+                    1 if atp else 0,
+                    1 if attivo else 0
                 ])
+            
+            csv_data = output.getvalue()
+            output.close()
+            csv_bytes = csv_data.encode('utf-8')
+            files_to_send.append(('db_vigili.csv', csv_bytes))
         
-        csv_data = output.getvalue()
-        output.close()
+        # 3. Mezzi
+        mezzi = get_tutti_mezzi()
+        if mezzi:
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Targa', 'Tipo', 'Stato'])
+            
+            for mezzo in mezzi:
+                id_m, targa, tipo, attivo = mezzo
+                writer.writerow([
+                    targa, tipo,
+                    1 if attivo else 0
+                ])
+            
+            csv_data = output.getvalue()
+            output.close()
+            csv_bytes = csv_data.encode('utf-8')
+            files_to_send.append(('db_mezzi.csv', csv_bytes))
         
-        csv_bytes = csv_data.encode('utf-8')
-        csv_file = BytesIO(csv_bytes)
-        csv_file.name = f"interventi_backup_{anno_corrente}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        # 4. Utenti
+        utenti = get_utenti_approvati()
+        if utenti:
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['user_id', 'username', 'nome', 'telefono', 'ruolo', 'data_approvazione'])
+            
+            for utente in utenti:
+                user_id, username, nome, telefono, ruolo, data_approvazione = utente
+                writer.writerow([
+                    user_id,
+                    username or '',
+                    nome or '',
+                    telefono or '',
+                    ruolo,
+                    data_approvazione or ''
+                ])
+            
+            csv_data = output.getvalue()
+            output.close()
+            csv_bytes = csv_data.encode('utf-8')
+            files_to_send.append(('db_user.csv', csv_bytes))
         
-        # Invia al super user ogni giorno
-        super_user_id = 1816045269
-        await context.bot.send_document(
-            chat_id=super_user_id,
-            document=csv_file,
-            filename=csv_file.name,
-            caption=f"📊 **BACKUP AUTOMATICO INTERVENTI {anno_corrente}**\n\n"
-                   f"File CSV contenente tutti gli interventi dell'anno {anno_corrente}.\n"
-                   f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        )
-        print(f"✅ CSV interventi inviato al super user {super_user_id}")
-        
-        # Reinizializza il file per inviarlo agli altri admin
-        csv_file.seek(0)
-        
-        # Invia agli altri admin ogni domenica
-        oggi = datetime.now()
-        if oggi.weekday() == 6:  # 6 = Domenica
-            altri_admin = [admin_id for admin_id in ADMIN_IDS if admin_id != super_user_id]
-            for admin_id in altri_admin:
-                try:
+        # Invia i file a tutti gli admin
+        for admin_id in ADMIN_IDS:
+            try:
+                for filename, csv_bytes in files_to_send:
+                    csv_file = BytesIO(csv_bytes)
+                    csv_file.name = filename
+                    
                     await context.bot.send_document(
                         chat_id=admin_id,
                         document=csv_file,
-                        filename=csv_file.name,
-                        caption=f"📊 **BACKUP SETTIMANALE INTERVENTI {anno_corrente}**\n\n"
-                               f"File CSV contenente tutti gli interventi dell'anno {anno_corrente}.\n"
-                               f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                        filename=filename,
+                        caption=f"📊 Backup automatico - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
                     )
-                    print(f"✅ CSV interventi inviato all'admin {admin_id}")
-                    csv_file.seek(0)  # Riposiziona all'inizio per il prossimo invio
-                except Exception as e:
-                    print(f"❌ Errore nell'invio a admin {admin_id}: {e}")
-        
-    except Exception as e:
-        print(f"❌ Errore durante l'invio automatico CSV interventi: {e}")
-
-async def invio_csv_automatico_status(context: ContextTypes.DEFAULT_TYPE):
-    """Funzione per inviare automaticamente CSV dello status caserma"""
-    try:
-        print("🔄 Invio automatico CSV status caserma")
-        
-        vigili = get_tutti_vigili()
-        mezzi = get_tutti_mezzi()
-        
-        # Crea il file CSV
-        output = StringIO()
-        writer = csv.writer(output)
-        
-        writer.writerow(["_ VIGILI _"])
-        writer.writerow(['Nome', 'Cognome', 'Qualifica', 'Grado Patente', 'Patente Nautica', 'SAF', 'TPSS', 'ATP', 'Stato'])
-        
-        for vigile in vigili:
-            id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
-            writer.writerow([
-                nome, cognome, qualifica, grado,
-                1 if nautica else 0,
-                1 if saf else 0,
-                1 if tpss else 0,
-                1 if atp else 0,
-                1 if attivo else 0
-            ])
-        
-        writer.writerow([])
-        writer.writerow(["_ MEZZI _"])
-        writer.writerow(['Targa', 'Tipo', 'Stato'])
-        
-        for mezzo in mezzi:
-            id_m, targa, tipo, attivo = mezzo
-            writer.writerow([
-                targa, tipo,
-                1 if attivo else 0
-            ])
-        
-        csv_data = output.getvalue()
-        output.close()
-        
-        csv_bytes = csv_data.encode('utf-8')
-        csv_file = BytesIO(csv_bytes)
-        csv_file.name = f"status_caserma_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        
-        # Invia a tutti gli admin
-        for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_document(
-                    chat_id=admin_id,
-                    document=csv_file,
-                    filename=csv_file.name,
-                    caption="🏠 **BACKUP STATUS CASERMA**\n\n"
-                           "File CSV contenente l'elenco completo di vigili e mezzi.\n"
-                           f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-                )
-                print(f"✅ CSV status caserma inviato all'admin {admin_id}")
-                csv_file.seek(0)  # Riposiziona all'inizio per il prossimo invio
+                    time.sleep(1)  # Piccola pausa tra i file
+                
+                print(f"✅ CSV inviati automaticamente all'admin {admin_id}")
+                
             except Exception as e:
-                print(f"❌ Errore nell'invio status a admin {admin_id}: {e}")
+                print(f"❌ Errore nell'invio a admin {admin_id}: {e}")
         
     except Exception as e:
-        print(f"❌ Errore durante l'invio automatico CSV status: {e}")
+        print(f"❌ Errore generale nell'invio automatico CSV: {e}")
 
-async def scheduler_invio_automatico(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduler per gli invii automatici"""
-    print("🔄 Scheduler invio automatico CSV avviato")
-    
-    while True:
-        try:
-            now = datetime.now()
-            
-            # Controlla se è l'ora programmata (23:55)
-            if now.hour == 23 and now.minute == 55:
-                print("⏰ Ora di invio automatico CSV raggiunta")
-                
-                # Invio interventi al super user (ogni giorno)
-                await invio_csv_automatico_interventi(context)
-                
-                # Invio status caserma (ogni 4 mesi a fine mese)
-                if now.month in [3, 6, 9, 12] and now.day >= 25:  # Fine marzo, giugno, settembre, dicembre
-                    await invio_csv_automatico_status(context)
-                
-                # Aspetta 2 minuti per evitare esecuzioni multiple
-                await asyncio.sleep(120)
-            else:
-                # Controlla ogni minuto
-                await asyncio.sleep(60)
-                
-        except Exception as e:
-            print(f"❌ Errore nello scheduler: {e}")
-            await asyncio.sleep(60)
+def scheduler_invio_csv(context):
+    """Scheduler per l'invio automatico dei CSV"""
+    asyncio.create_task(invia_csv_automatico_admin(context))
 
 # === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
 def keep_alive_aggressive():
@@ -1095,7 +1030,7 @@ async def mostra_selezione_tipologia_paginata(update, context, page=0):
     else:
         await update.edit_message_text(messaggio, reply_markup=reply_markup)
 
-# === NUOVO SISTEMA IMPORT/EXPORT CSV SEPARATI ===
+# === IMPORT/EXPORT CSV - VERSIONE SEMPLIFICATA ===
 async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -1103,9 +1038,9 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     document = update.message.document
-    filename = document.file_name.lower()
+    file_name = document.file_name.lower()
     
-    if not filename.endswith('.csv'):
+    if not file_name.endswith('.csv'):
         await update.message.reply_text("❌ Il file deve essere in formato CSV.")
         return
     
@@ -1129,25 +1064,25 @@ async def gestisci_file_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         reader = csv.reader(csv_content)
+        headers = next(reader)
         
-        # Riconoscimento del tipo di CSV in base al nome del file
-        if 'db_interventi.csv' in filename:
+        # Determina il tipo di CSV in base al nome del file
+        if 'db_interventi' in file_name:
             await gestisci_import_interventi(update, context, reader)
-        elif 'db_vigili.csv' in filename:
+        elif 'db_vigili' in file_name:
             await gestisci_import_vigili(update, context, reader)
-        elif 'db_mezzi.csv' in filename:
+        elif 'db_mezzi' in file_name:
             await gestisci_import_mezzi(update, context, reader)
-        elif 'db_user.csv' in filename:
+        elif 'db_user' in file_name:
             await gestisci_import_utenti(update, context, reader)
         else:
             await update.message.reply_text(
-                "❌ Formato file non riconosciuto.\n\n"
-                "📁 **Formati supportati:**\n"
-                "• db_interventi.csv - Dati interventi\n"
-                "• db_vigili.csv - Anagrafica vigili\n" 
-                "• db_mezzi.csv - Anagrafica mezzi\n"
-                "• db_user.csv - Utenti del bot\n\n"
-                "Usa i pulsanti di esportazione per ottenere il formato corretto."
+                "❌ Impossibile determinare il tipo di CSV.\n\n"
+                "I nomi dei file devono contenere:\n"
+                "• 'db_interventi' per gli interventi\n"
+                "• 'db_vigili' per i vigili\n"
+                "• 'db_mezzi' per i mezzi\n"
+                "• 'db_user' per gli utenti"
             )
         
     except Exception as e:
@@ -1160,29 +1095,11 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
     error_count = 0
     error_details = []
     
-    # Leggi l'header
-    try:
-        headers = next(reader)
-        expected_headers = ['Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro', 
-                           'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
-                           'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti']
-        
-        if len(headers) != len(expected_headers):
-            await update.message.reply_text(
-                f"❌ Formato CSV non valido per interventi.\n"
-                f"Attese {len(expected_headers)} colonne, trovate {len(headers)}.\n"
-                f"Header trovato: {headers}"
-            )
-            return
-    except StopIteration:
-        await update.message.reply_text("❌ File CSV vuoto.")
-        return
-    
     for row_num, row in enumerate(reader, start=2):
         try:
             if len(row) < 16:
                 error_count += 1
-                error_details.append(f"Riga {row_num}: Numero colonne insufficiente ({len(row)})")
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/16)")
                 continue
             
             # Estrai i dati dalla riga
@@ -1190,7 +1107,7 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
             rapporto_como = row[1]
             progressivo_como = row[2]
             
-            # Controlla se l'intervento esiste già (stesso rapporto, progressivo e anno)
+            # Verifica se l'intervento esiste già
             existing = get_intervento_by_rapporto(rapporto_como, progressivo_como)
             if existing:
                 skipped_count += 1
@@ -1230,7 +1147,7 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
                 'via': row[10] if len(row) > 10 else '',
                 'indirizzo': row[11] if len(row) > 11 else '',
                 'tipologia': row[12] if len(row) > 12 else '',
-                'cambio_personale': row[13].lower() in ['sì', 'si', '1', 'true', 'vero', 'yes'] if len(row) > 13 else False,
+                'cambio_personale': row[13].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 13 else False,
                 'km_finali': int(row[14]) if len(row) > 14 and row[14] and row[14].isdigit() else None,
                 'litri_riforniti': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
                 'partecipanti': []
@@ -1245,21 +1162,21 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
             print(f"Errore nell'importazione riga {row_num}: {e}")
             continue
     
-    # Invia report
-    report = f"✅ **IMPORTAZIONE INTERVENTI COMPLETATA**\n\n"
-    report += f"📊 **Risultati:**\n"
-    report += f"• ✅ Record importati: {imported_count}\n"
-    report += f"• ⏭️ Record saltati (già presenti): {skipped_count}\n"
-    report += f"• ❌ Errori: {error_count}\n\n"
+    # Invia il report
+    messaggio = f"✅ **IMPORTAZIONE INTERVENTI COMPLETATA**\n\n"
+    messaggio += f"📊 **Risultati:**\n"
+    messaggio += f"• ✅ Record importati: {imported_count}\n"
+    messaggio += f"• ⏭️ Record saltati (già presenti): {skipped_count}\n"
+    messaggio += f"• ❌ Errori: {error_count}\n\n"
     
     if error_details:
-        report += "📋 **Dettagli errori (prime 5):**\n"
+        messaggio += "📋 **Dettagli errori (prime 5):**\n"
         for detail in error_details[:5]:
-            report += f"• {detail}\n"
+            messaggio += f"• {detail}\n"
         if len(error_details) > 5:
-            report += f"• ... e altri {len(error_details) - 5} errori\n"
+            messaggio += f"• ... e altri {len(error_details) - 5} errori\n"
     
-    await update.message.reply_text(report)
+    await update.message.reply_text(messaggio)
 
 async def gestisci_import_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE, reader):
     imported_count = 0
@@ -1267,47 +1184,31 @@ async def gestisci_import_vigili(update: Update, context: ContextTypes.DEFAULT_T
     error_count = 0
     error_details = []
     
-    # Leggi l'header
-    try:
-        headers = next(reader)
-        expected_headers = ['Nome', 'Cognome', 'Qualifica', 'Grado Patente', 'Patente Nautica', 'SAF', 'TPSS', 'ATP', 'Attivo']
-        
-        if len(headers) != len(expected_headers):
-            await update.message.reply_text(
-                f"❌ Formato CSV non valido per vigili.\n"
-                f"Attese {len(expected_headers)} colonne, trovate {len(headers)}.\n"
-                f"Header trovato: {headers}"
-            )
-            return
-    except StopIteration:
-        await update.message.reply_text("❌ File CSV vuoto.")
-        return
-    
     for row_num, row in enumerate(reader, start=2):
         try:
             if len(row) < 9:
                 error_count += 1
-                error_details.append(f"Riga {row_num}: Numero colonne insufficiente ({len(row)})")
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/9)")
                 continue
             
             nome = row[0]
             cognome = row[1]
             qualifica = row[2]
             grado_patente = row[3]
-            patente_nautica = row[4].lower() in ['1', 'true', 'si', 'sì', 'yes']
-            saf = row[5].lower() in ['1', 'true', 'si', 'sì', 'yes']
-            tpss = row[6].lower() in ['1', 'true', 'si', 'sì', 'yes']
-            atp = row[7].lower() in ['1', 'true', 'si', 'sì', 'yes']
-            attivo = row[8].lower() in ['1', 'true', 'si', 'sì', 'yes']
+            patente_nautica = bool(int(row[4])) if row[4] and row[4].isdigit() else False
+            saf = bool(int(row[5])) if row[5] and row[5].isdigit() else False
+            tpss = bool(int(row[6])) if row[6] and row[6].isdigit() else False
+            atp = bool(int(row[7])) if row[7] and row[7].isdigit() else False
+            attivo = bool(int(row[8])) if len(row) > 8 and row[8] and row[8].isdigit() else True
             
             # Cerca se il vigile esiste già
             conn = sqlite3.connect(DATABASE_NAME)
             c = conn.cursor()
-            c.execute('''SELECT id FROM vigili WHERE nome = ? AND cognome = ?''', (nome, cognome))
+            c.execute("SELECT id FROM vigili WHERE nome = ? AND cognome = ?", (nome, cognome))
             existing_vigile = c.fetchone()
             
             if existing_vigile:
-                # Aggiorna vigile esistente
+                # Aggiorna il vigile esistente
                 vigile_id = existing_vigile[0]
                 c.execute('''UPDATE vigili SET 
                             qualifica = ?, grado_patente_terrestre = ?, patente_nautica = ?, 
@@ -1316,7 +1217,7 @@ async def gestisci_import_vigili(update: Update, context: ContextTypes.DEFAULT_T
                          (qualifica, grado_patente, patente_nautica, saf, tpss, atp, attivo, vigile_id))
                 updated_count += 1
             else:
-                # Inserisci nuovo vigile
+                # Inserisce nuovo vigile
                 c.execute('''INSERT INTO vigili 
                             (nome, cognome, qualifica, grado_patente_terrestre, patente_nautica, saf, tpss, atp, attivo) 
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -1329,24 +1230,20 @@ async def gestisci_import_vigili(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             error_count += 1
             error_details.append(f"Riga {row_num}: {str(e)}")
-            print(f"Errore nell'importazione vigile {row_num}: {e}")
             continue
     
-    # Invia report
-    report = f"✅ **IMPORTAZIONE VIGILI COMPLETATA**\n\n"
-    report += f"📊 **Risultati:**\n"
-    report += f"• ✅ Vigili importati: {imported_count}\n"
-    report += f"• 🔄 Vigili aggiornati: {updated_count}\n"
-    report += f"• ❌ Errori: {error_count}\n\n"
+    messaggio = f"✅ **IMPORTAZIONE VIGILI COMPLETATA**\n\n"
+    messaggio += f"📊 **Risultati:**\n"
+    messaggio += f"• ✅ Vigili importati: {imported_count}\n"
+    messaggio += f"• 🔄 Vigili aggiornati: {updated_count}\n"
+    messaggio += f"• ❌ Errori: {error_count}\n\n"
     
     if error_details:
-        report += "📋 **Dettagli errori (prime 5):**\n"
+        messaggio += "📋 **Dettagli errori (prime 5):**\n"
         for detail in error_details[:5]:
-            report += f"• {detail}\n"
-        if len(error_details) > 5:
-            report += f"• ... e altri {len(error_details) - 5} errori\n"
+            messaggio += f"• {detail}\n"
     
-    await update.message.reply_text(report)
+    await update.message.reply_text(messaggio)
 
 async def gestisci_import_mezzi(update: Update, context: ContextTypes.DEFAULT_TYPE, reader):
     imported_count = 0
@@ -1354,76 +1251,46 @@ async def gestisci_import_mezzi(update: Update, context: ContextTypes.DEFAULT_TY
     error_count = 0
     error_details = []
     
-    # Leggi l'header
-    try:
-        headers = next(reader)
-        expected_headers = ['Targa', 'Tipo', 'Attivo']
-        
-        if len(headers) != len(expected_headers):
-            await update.message.reply_text(
-                f"❌ Formato CSV non valido per mezzi.\n"
-                f"Attese {len(expected_headers)} colonne, trovate {len(headers)}.\n"
-                f"Header trovato: {headers}"
-            )
-            return
-    except StopIteration:
-        await update.message.reply_text("❌ File CSV vuoto.")
-        return
-    
     for row_num, row in enumerate(reader, start=2):
         try:
             if len(row) < 3:
                 error_count += 1
-                error_details.append(f"Riga {row_num}: Numero colonne insufficiente ({len(row)})")
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/3)")
                 continue
             
             targa = row[0]
             tipo = row[1]
-            attivo = row[2].lower() in ['1', 'true', 'si', 'sì', 'yes']
+            attivo = bool(int(row[2])) if row[2] and row[2].isdigit() else True
             
-            # Inserisci o aggiorna mezzo
-            conn = sqlite3.connect(DATABASE_NAME)
-            c = conn.cursor()
+            # Usa la funzione esistente per aggiungere/aggiornare il mezzo
+            aggiungi_mezzo(targa, tipo)
             
-            # Controlla se il mezzo esiste già
-            c.execute('''SELECT id FROM mezzi WHERE targa = ?''', (targa,))
-            existing_mezzo = c.fetchone()
+            # Aggiorna lo stato attivo se necessario
+            if not attivo:
+                conn = sqlite3.connect(DATABASE_NAME)
+                c = conn.cursor()
+                c.execute("UPDATE mezzi SET attivo = ? WHERE targa = ?", (attivo, targa))
+                conn.commit()
+                conn.close()
             
-            if existing_mezzo:
-                # Aggiorna mezzo esistente
-                c.execute('''UPDATE mezzi SET tipo = ?, attivo = ? WHERE targa = ?''',
-                         (tipo, attivo, targa))
-                updated_count += 1
-            else:
-                # Inserisci nuovo mezzo
-                c.execute('''INSERT INTO mezzi (targa, tipo, attivo) VALUES (?, ?, ?)''',
-                         (targa, tipo, attivo))
-                imported_count += 1
-            
-            conn.commit()
-            conn.close()
+            updated_count += 1  # aggiungi_mezzo fa INSERT OR REPLACE, quindi è sempre un aggiornamento
             
         except Exception as e:
             error_count += 1
             error_details.append(f"Riga {row_num}: {str(e)}")
-            print(f"Errore nell'importazione mezzo {row_num}: {e}")
             continue
     
-    # Invia report
-    report = f"✅ **IMPORTAZIONE MEZZI COMPLETATA**\n\n"
-    report += f"📊 **Risultati:**\n"
-    report += f"• ✅ Mezzi importati: {imported_count}\n"
-    report += f"• 🔄 Mezzi aggiornati: {updated_count}\n"
-    report += f"• ❌ Errori: {error_count}\n\n"
+    messaggio = f"✅ **IMPORTAZIONE MEZZI COMPLETATA**\n\n"
+    messaggio += f"📊 **Risultati:**\n"
+    messaggio += f"• 🔄 Mezzi importati/aggiornati: {updated_count}\n"
+    messaggio += f"• ❌ Errori: {error_count}\n\n"
     
     if error_details:
-        report += "📋 **Dettagli errori (prime 5):**\n"
+        messaggio += "📋 **Dettagli errori (prime 5):**\n"
         for detail in error_details[:5]:
-            report += f"• {detail}\n"
-        if len(error_details) > 5:
-            report += f"• ... e altri {len(error_details) - 5} errori\n"
+            messaggio += f"• {detail}\n"
     
-    await update.message.reply_text(report)
+    await update.message.reply_text(messaggio)
 
 async def gestisci_import_utenti(update: Update, context: ContextTypes.DEFAULT_TYPE, reader):
     imported_count = 0
@@ -1431,27 +1298,11 @@ async def gestisci_import_utenti(update: Update, context: ContextTypes.DEFAULT_T
     error_count = 0
     error_details = []
     
-    # Leggi l'header
-    try:
-        headers = next(reader)
-        expected_headers = ['user_id', 'username', 'nome', 'telefono', 'ruolo', 'data_approvazione']
-        
-        if len(headers) != len(expected_headers):
-            await update.message.reply_text(
-                f"❌ Formato CSV non valido per utenti.\n"
-                f"Attese {len(expected_headers)} colonne, trovate {len(headers)}.\n"
-                f"Header trovato: {headers}"
-            )
-            return
-    except StopIteration:
-        await update.message.reply_text("❌ File CSV vuoto.")
-        return
-    
     for row_num, row in enumerate(reader, start=2):
         try:
             if len(row) < 6:
                 error_count += 1
-                error_details.append(f"Riga {row_num}: Numero colonne insufficiente ({len(row)})")
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/6)")
                 continue
             
             user_id = int(row[0])
@@ -1485,40 +1336,36 @@ async def gestisci_import_utenti(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             error_count += 1
             error_details.append(f"Riga {row_num}: {str(e)}")
-            print(f"Errore nell'importazione utente {row_num}: {e}")
             continue
     
-    # Invia report
-    report = f"✅ **IMPORTAZIONE UTENTI COMPLETATA**\n\n"
-    report += f"📊 **Risultati:**\n"
-    report += f"• ✅ Utenti importati: {imported_count}\n"
-    report += f"• 🔄 Utenti aggiornati: {updated_count}\n"
-    report += f"• ❌ Errori: {error_count}\n\n"
+    messaggio = f"✅ **IMPORTAZIONE UTENTI COMPLETATA**\n\n"
+    messaggio += f"📊 **Risultati:**\n"
+    messaggio += f"• ✅ Utenti importati: {imported_count}\n"
+    messaggio += f"• 🔄 Utenti aggiornati: {updated_count}\n"
+    messaggio += f"• ❌ Errori: {error_count}\n\n"
     
     if error_details:
-        report += "📋 **Dettagli errori (prime 5):**\n"
+        messaggio += "📋 **Dettagli errori (prime 5):**\n"
         for detail in error_details[:5]:
-            report += f"• {detail}\n"
-        if len(error_details) > 5:
-            report += f"• ... e altri {len(error_details) - 5} errori\n"
+            messaggio += f"• {detail}\n"
     
-    await update.message.reply_text(report)
+    await update.message.reply_text(messaggio)
 
-# === ESTRAZIONE DATI AGGIORNATA ===
+# === ESTRAZIONE DATI - VERSIONE SEMPLIFICATA ===
 async def estrazione_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_user_approved(user_id):
         return
     
     keyboard = [
-        [InlineKeyboardButton("📋 Dati Interventi Completi", callback_data="export_tutto")],
-        [InlineKeyboardButton("📅 Dati Interventi per Anno", callback_data="export_anno")],
-        [InlineKeyboardButton("👥 Elenco Vigili", callback_data="export_vigili")],
-        [InlineKeyboardButton("🚒 Elenco Mezzi", callback_data="export_mezzi")]
+        [InlineKeyboardButton("📋 Interventi Completi", callback_data="export_interventi")],
+        [InlineKeyboardButton("👥 Vigili", callback_data="export_vigili")],
+        [InlineKeyboardButton("🚒 Mezzi", callback_data="export_mezzi")]
     ]
     
     if is_admin(user_id):
-        keyboard.append([InlineKeyboardButton("👤 Utenti Approvati", callback_data="export_utenti")])
+        keyboard.append([InlineKeyboardButton("👤 Utenti", callback_data="export_utenti")])
+        keyboard.append([InlineKeyboardButton("📤 Invia CSV a Admin", callback_data="invia_csv_admin")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1527,6 +1374,69 @@ async def estrazione_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Seleziona il tipo di estrazione:",
         reply_markup=reply_markup
     )
+
+async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    try:
+        interventi = get_ultimi_interventi(10000)
+        
+        if not interventi:
+            await query.edit_message_text("❌ Nessun intervento da esportare.")
+            return
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        writer.writerow([
+            'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
+            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
+            'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
+        ])
+        
+        for intervento in interventi:
+            if len(intervento) >= 18:
+                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                
+                try:
+                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                except:
+                    data_uscita_fmt = data_uscita
+                
+                try:
+                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+                except:
+                    data_rientro_fmt = data_rientro or ''
+                
+                writer.writerow([
+                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+                    mezzo_targa, mezzo_tipo, capo, autista, comune, via, 
+                    indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
+                    km_finali or '', litri_riforniti or ''
+                ])
+        
+        csv_data = output.getvalue()
+        output.close()
+        
+        csv_bytes = csv_data.encode('utf-8')
+        csv_file = BytesIO(csv_bytes)
+        csv_file.name = f"db_interventi_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        
+        await query.edit_message_text("📤 Generazione file in corso...")
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=csv_file,
+            filename=csv_file.name,
+            caption="📋 **INTERVENTI**\n\nFile CSV contenente tutti gli interventi."
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(f"❌ Errore durante l'esportazione: {str(e)}")
 
 async def esegui_export_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1542,8 +1452,7 @@ async def esegui_export_vigili(update: Update, context: ContextTypes.DEFAULT_TYP
         output = StringIO()
         writer = csv.writer(output)
         
-        # Header per db_vigili.csv
-        writer.writerow(['Nome', 'Cognome', 'Qualifica', 'Grado Patente', 'Patente Nautica', 'SAF', 'TPSS', 'ATP', 'Attivo'])
+        writer.writerow(['Nome', 'Cognome', 'Qualifica', 'Grado_Patente', 'Patente_Nautica', 'SAF', 'TPSS', 'ATP', 'Stato'])
         
         for vigile in vigili:
             id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
@@ -1568,10 +1477,7 @@ async def esegui_export_vigili(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=query.message.chat_id,
             document=csv_file,
             filename=csv_file.name,
-            caption="👥 **ELENCO VIGILI**\n\n"
-                   "File CSV contenente l'elenco completo dei vigili.\n\n"
-                   "📝 **Formato per importazione:**\n"
-                   "• Nome, Cognome, Qualifica, Grado Patente, Patente Nautica (0/1), SAF (0/1), TPSS (0/1), ATP (0/1), Attivo (0/1)"
+            caption="👥 **VIGILI**\n\nFile CSV contenente l'elenco completo dei vigili."
         )
         
     except Exception as e:
@@ -1591,8 +1497,7 @@ async def esegui_export_mezzi(update: Update, context: ContextTypes.DEFAULT_TYPE
         output = StringIO()
         writer = csv.writer(output)
         
-        # Header per db_mezzi.csv
-        writer.writerow(['Targa', 'Tipo', 'Attivo'])
+        writer.writerow(['Targa', 'Tipo', 'Stato'])
         
         for mezzo in mezzi:
             id_m, targa, tipo, attivo = mezzo
@@ -1613,10 +1518,7 @@ async def esegui_export_mezzi(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=query.message.chat_id,
             document=csv_file,
             filename=csv_file.name,
-            caption="🚒 **ELENCO MEZZI**\n\n"
-                   "File CSV contenente l'elenco completo dei mezzi.\n\n"
-                   "📝 **Formato per importazione:**\n"
-                   "• Targa, Tipo, Attivo (0/1)"
+            caption="🚒 **MEZZI**\n\nFile CSV contenente l'elenco completo dei mezzi."
         )
         
     except Exception as e:
@@ -1636,7 +1538,6 @@ async def esegui_export_utenti(update: Update, context: ContextTypes.DEFAULT_TYP
         output = StringIO()
         writer = csv.writer(output)
         
-        # Header per db_user.csv
         writer.writerow(['user_id', 'username', 'nome', 'telefono', 'ruolo', 'data_approvazione'])
         
         for utente in utenti:
@@ -1662,17 +1563,14 @@ async def esegui_export_utenti(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=query.message.chat_id,
             document=csv_file,
             filename=csv_file.name,
-            caption="👤 **UTENTI APPROVATI**\n\n"
-                   "File CSV contenente l'elenco degli utenti approvati.\n\n"
-                   "📝 **Formato per importazione:**\n"
-                   "user_id,username,nome,telefono,ruolo,data_approvazione"
+            caption="👤 **UTENTI**\n\nFile CSV contenente l'elenco degli utenti approvati."
         )
         
     except Exception as e:
         await query.edit_message_text(f"❌ Errore durante l'esportazione utenti: {str(e)}")
 
-# Le funzioni esegui_export e gestisci_export_anno rimangono come prima per gli interventi
-async def esegui_export(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo: str, anno: str = None):
+async def invia_csv_admin_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Invio manuale dei CSV agli admin"""
     query = update.callback_query
     try:
         await query.answer()
@@ -1680,102 +1578,9 @@ async def esegui_export(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo
         if "Query is too old" in str(e):
             return
     
-    try:
-        if tipo == 'anno':
-            interventi = get_interventi_per_anno(anno)
-            filename_suffix = f"anno_{anno}"
-            caption = f"Esportazione dati per l'anno {anno}"
-            export_filename = f"db_interventi_{anno}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        else:
-            interventi = get_ultimi_interventi(10000)
-            filename_suffix = "completo"
-            caption = "Esportazione completa di tutti i dati"
-            export_filename = f"db_interventi_completo_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        
-        if not interventi:
-            await query.edit_message_text("❌ Nessun dato da esportare per i criteri selezionati.")
-            return
-        
-        output = StringIO()
-        writer = csv.writer(output)
-        
-        # Header per db_interventi.csv (16 colonne)
-        writer.writerow([
-            'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
-            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
-            'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
-        ])
-        
-        for intervento in interventi:
-            if len(intervento) >= 18:
-                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
-                
-                # Formatta le date per l'esportazione
-                try:
-                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
-                except:
-                    data_uscita_fmt = data_uscita
-                
-                try:
-                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
-                except:
-                    data_rientro_fmt = data_rientro or ''
-                
-                writer.writerow([
-                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
-                    mezzo_targa, mezzo_tipo, capo, autista, comune, via, 
-                    indirizzo, tipologia or '', '1' if cambio_personale else '0', 
-                    km_finali or '', litri_riforniti or ''
-                ])
-        
-        csv_data = output.getvalue()
-        output.close()
-        
-        csv_bytes = csv_data.encode('utf-8')
-        csv_file = BytesIO(csv_bytes)
-        csv_file.name = export_filename
-        
-        await query.edit_message_text("📤 Generazione file in corso...")
-        await context.bot.send_document(
-            chat_id=query.message.chat_id,
-            document=csv_file,
-            filename=csv_file.name,
-            caption=f"📤 **{caption}**\n\n"
-                   f"File CSV contenente gli interventi.\n\n"
-                   f"📝 **Formato per importazione:**\n"
-                   f"• 16 colonne specifiche per interventi\n"
-                   f"• Formato date: GG/MM/AAAA HH:MM\n"
-                   f"• Cambio_Personale: 0/1"
-        )
-        
-    except Exception as e:
-        await query.edit_message_text(f"❌ Errore durante l'esportazione: {str(e)}")
-
-async def gestisci_export_anno(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    try:
-        await query.answer()
-    except BadRequest as e:
-        if "Query is too old" in str(e):
-            return
-    
-    anni = get_anni_disponibili()
-    
-    if not anni:
-        await query.edit_message_text("❌ Nessun dato da esportare.")
-        return
-    
-    keyboard = []
-    for anno in anni:
-        keyboard.append([InlineKeyboardButton(anno, callback_data=f"export_anno_{anno}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        "📅 **ESPORTA INTERVENTI PER ANNO**\n\n"
-        "Seleziona l'anno:",
-        reply_markup=reply_markup
-    )
+    await query.edit_message_text("📤 Invio CSV a tutti gli admin in corso...")
+    await invia_csv_automatico_admin(context)
+    await query.edit_message_text("✅ CSV inviati a tutti gli admin!")
 
 # === GESTIONE RICHIESTE ACCESSO ===
 async def gestisci_richieste(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1937,6 +1742,843 @@ async def esegui_rimozione_utente(update: Update, context: ContextTypes.DEFAULT_
         )
     else:
         await query.edit_message_text("❌ Utente non trovato.")
+
+# === HANDLER START ===
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    for key in list(context.user_data.keys()):
+        del context.user_data[key]
+    
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute('''INSERT OR IGNORE INTO utenti (user_id, username, nome, ruolo) 
+                 VALUES (?, ?, ?, 'in_attesa')''', 
+                 (user_id, update.effective_user.username, user_name))
+    conn.commit()
+    conn.close()
+
+    if not is_user_approved(user_id):
+        richieste = get_richieste_in_attesa()
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    admin_id,
+                    f"🆕 NUOVA RICHIESTA ACCESSO\n\nUser: {user_name}\nID: {user_id}\nRichieste in attesa: {len(richieste)}"
+                )
+            except:
+                pass
+
+        await update.message.reply_text(
+            "✅ Richiesta inviata agli amministratori.\nAttendi l'approvazione!",
+            reply_markup=crea_tastiera_fisica(user_id)
+        )
+        return
+
+    welcome_text = f"👨‍💻 BENVENUTO ADMIN {user_name}!" if is_admin(user_id) else f"👤 BENVENUTO {user_name}!"
+    await update.message.reply_text(welcome_text, reply_markup=crea_tastiera_fisica(user_id))
+
+# === NUOVO INTERVENTO - FLUSSO COMPLETO ===
+async def avvia_nuovo_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_user_approved(user_id):
+        return
+
+    for key in ['nuovo_intervento', 'fase', 'vigili_da_selezionare', 'vigili_selezionati']:
+        if key in context.user_data:
+            del context.user_data[key]
+    
+    context.user_data['nuovo_intervento'] = {}
+    context.user_data['fase'] = 'scelta_tipo'
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("🆕 Nuovo Rapporto", callback_data="tipo_nuovo"),
+            InlineKeyboardButton("🔗 Collegato a Esistente", callback_data="tipo_collegato")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🔰 **NUOVO INTERVENTO**\n\n"
+        "Seleziona il tipo di intervento:",
+        reply_markup=reply_markup
+    )
+
+async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    if callback_data == "tipo_nuovo":
+        context.user_data['fase'] = 'inserisci_rapporto'
+        await query.edit_message_text(
+            "📝 **INSERISCI RAPPORTO COMO**\n\n"
+            "Inserisci il numero del rapporto Como (solo numeri):"
+        )
+    else:
+        interventi_recenti = get_ultimi_15_interventi()
+        
+        if not interventi_recenti:
+            await query.edit_message_text("❌ Nessun intervento trovato nel database.")
+            return
+        
+        keyboard = []
+        for intervento in interventi_recenti:
+            id_int, rapporto, progressivo, num_erba, data_uscita, indirizzo = intervento
+            data = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"#{num_erba} - R{rapporto}/{progressivo} - {data}",
+                    callback_data=f"collega_{id_int}"
+                )
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🔗 **SELEZIONA INTERVENTO ESISTENTE**\n\n"
+            "Scegli l'intervento a cui collegarti (ultimi 15):",
+            reply_markup=reply_markup
+        )
+
+async def gestisci_collega_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, intervento_id: int):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    conn = sqlite3.connect(DATABASE_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT rapporto_como, numero_erba, indirizzo, tipologia FROM interventi WHERE id = ?''', (intervento_id,))
+    intervento = c.fetchone()
+    conn.close()
+    
+    if intervento:
+        rapporto_como, numero_erba, indirizzo, tipologia = intervento
+        progressivo_como = get_progressivo_per_rapporto(rapporto_como)
+        
+        context.user_data['nuovo_intervento']['rapporto_como'] = rapporto_como
+        context.user_data['nuovo_intervento']['progressivo_como'] = progressivo_como
+        context.user_data['nuovo_intervento']['numero_erba'] = numero_erba
+        
+        if progressivo_como != "01":
+            if indirizzo:
+                context.user_data['nuovo_intervento']['indirizzo'] = indirizzo
+            if tipologia:
+                context.user_data['nuovo_intervento']['tipologia'] = tipologia
+        
+        context.user_data['fase'] = 'data_uscita'
+        
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        ieri = (datetime.now() - timedelta(days=1)).strftime('%d/%m/%Y')
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(f"🟢 OGGI ({oggi})", callback_data="data_oggi"),
+                InlineKeyboardButton(f"🟡 IERI ({ieri})", callback_data="data_ieri")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        messaggio = f"🔗 **COLLEGATO A R{rapporto_como}**\n"
+        messaggio += f"Progressivo: {progressivo_como}\n"
+        
+        if progressivo_como != "01":
+            if indirizzo:
+                messaggio += f"📍 Indirizzo: {indirizzo}\n"
+            if tipologia:
+                messaggio += f"🚨 Tipologia: {tipologia}\n"
+        
+        messaggio += "\n📅 **DATA USCITA**\nSeleziona la data di uscita:"
+        
+        await query.edit_message_text(messaggio, reply_markup=reply_markup)
+
+async def gestisci_rapporto_como(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rapporto = update.message.text.strip()
+    
+    if not rapporto.isdigit():
+        await update.message.reply_text("❌ Inserisci solo numeri! Riprova:")
+        return
+    
+    context.user_data['nuovo_intervento']['rapporto_como'] = rapporto
+    context.user_data['nuovo_intervento']['progressivo_como'] = "01"
+    context.user_data['nuovo_intervento']['numero_erba'] = get_prossimo_numero_erba()
+    context.user_data['fase'] = 'data_uscita'
+    
+    oggi = datetime.now().strftime('%d/%m/%Y')
+    ieri = (datetime.now() - timedelta(days=1)).strftime('%d/%m/%Y')
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(f"🟢 OGGI ({oggi})", callback_data="data_oggi"),
+            InlineKeyboardButton(f"🟡 IERI ({ieri})", callback_data="data_ieri")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "📅 **DATA USCITA**\n\n"
+        "Seleziona la data di uscita:",
+        reply_markup=reply_markup
+    )
+
+async def gestisci_data_uscita(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    if callback_data == "data_oggi":
+        data_uscita = datetime.now()
+    else:
+        data_uscita = datetime.now() - timedelta(days=1)
+    
+    context.user_data['nuovo_intervento']['data_uscita'] = data_uscita.strftime('%Y-%m-%d')
+    context.user_data['fase'] = 'ora_uscita'
+    
+    await query.edit_message_text(
+        "⏰ **ORA USCITA**\n\n"
+        "Inserisci l'ora di uscita (formato 24h, es: 1423 per le 14:23):"
+    )
+
+async def gestisci_ora_uscita(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        ora_str = update.message.text.strip()
+        if len(ora_str) != 4 or not ora_str.isdigit():
+            raise ValueError("Formato non valido")
+        
+        ore = int(ora_str[:2])
+        minuti = int(ora_str[2:])
+        
+        if not (0 <= ore <= 23 and 0 <= minuti <= 59):
+            raise ValueError("Ora non valida")
+        
+        data_uscita = datetime.strptime(context.user_data['nuovo_intervento']['data_uscita'], '%Y-%m-%d')
+        data_uscita = data_uscita.replace(hour=ore, minute=minuti)
+        context.user_data['nuovo_intervento']['data_uscita_completa'] = data_uscita.strftime('%Y-%m-%d %H:%M:%S')
+        context.user_data['fase'] = 'data_rientro'
+        
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        ieri = (datetime.now() - timedelta(days=1)).strftime('%d/%m/%Y')
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(f"🟢 OGGI ({oggi})", callback_data="rientro_oggi"),
+                InlineKeyboardButton(f"🟡 IERI ({ieri})", callback_data="rientro_ieri")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📅 **DATA RIENTRO**\n\n"
+            "Seleziona la data di rientro:",
+            reply_markup=reply_markup
+        )
+        
+    except ValueError as e:
+        await update.message.reply_text("❌ Formato ora non valido! Inserisci 4 cifre (es: 1423 per 14:23):")
+
+async def gestisci_data_rientro(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    if callback_data == "rientro_oggi":
+        data_rientro = datetime.now()
+    else:
+        data_rientro = datetime.now() - timedelta(days=1)
+    
+    context.user_data['nuovo_intervento']['data_rientro'] = data_rientro.strftime('%Y-%m-%d')
+    context.user_data['fase'] = 'ora_rientro'
+    
+    await query.edit_message_text(
+        "⏰ **ORA RIENTRO**\n\n"
+        "Inserisci l'ora di rientro (formato 24h, es: 1630 per le 16:30):"
+    )
+
+async def gestisci_ora_rientro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        ora_str = update.message.text.strip()
+        if len(ora_str) != 4 or not ora_str.isdigit():
+            raise ValueError("Formato non valido")
+        
+        ore = int(ora_str[:2])
+        minuti = int(ora_str[2:])
+        
+        if not (0 <= ore <= 23 and 0 <= minuti <= 59):
+            raise ValueError("Ora non valida")
+        
+        data_rientro = datetime.strptime(context.user_data['nuovo_intervento']['data_rientro'], '%Y-%m-%d')
+        data_rientro = data_rientro.replace(hour=ore, minute=minuti)
+        
+        data_uscita = datetime.strptime(context.user_data['nuovo_intervento']['data_uscita_completa'], '%Y-%m-%d %H:%M:%S')
+        if data_rientro <= data_uscita:
+            await update.message.reply_text(
+                "❌ **ERRORE: L'ora di rientro deve essere successiva all'ora di uscita!**\n\n"
+                f"Uscita: {data_uscita.strftime('%d/%m/%Y %H:%M')}\n"
+                f"Rientro: {data_rientro.strftime('%d/%m/%Y %H:%M')}\n\n"
+                "Inserisci nuovamente l'ora di rientro:"
+            )
+            return
+        
+        context.user_data['nuovo_intervento']['data_rientro_completa'] = data_rientro.strftime('%Y-%m-%d %H:%M:%S')
+        context.user_data['fase'] = 'selezione_mezzo'
+        
+        mezzi = get_mezzi_attivi()
+        keyboard = []
+        for targa, tipo in mezzi:
+            keyboard.append([InlineKeyboardButton(f"🚒 {targa} - {tipo}", callback_data=f"mezzo_{targa}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🚒 **SELEZIONE MEZZO**\n\n"
+            "Scegli il mezzo utilizzato:",
+            reply_markup=reply_markup
+        )
+        
+    except ValueError as e:
+        await update.message.reply_text("❌ Formato ora non valido! Inserisci 4 cifres (es: 1630 per 16:30):")
+
+async def gestisci_selezione_mezzo(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    targa = callback_data.replace('mezzo_', '')
+    mezzi = get_mezzi_attivi()
+    tipo_mezzo = next((tipo for targa_m, tipo in mezzi if targa_m == targa), "")
+    
+    context.user_data['nuovo_intervento']['mezzo_targa'] = targa
+    context.user_data['nuovo_intervento']['mezzo_tipo'] = tipo_mezzo
+    
+    progressivo = context.user_data['nuovo_intervento'].get('progressivo_como', '01')
+    
+    if progressivo in ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']:
+        context.user_data['fase'] = 'cambio_personale'
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Sì", callback_data="cambio_si"),
+                InlineKeyboardButton("❌ No", callback_data="cambio_no")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "🔄 **CAMBIO PERSONALE**\n\n"
+            "Il mezzo è uscito per cambio personale?",
+            reply_markup=reply_markup
+        )
+    else:
+        context.user_data['nuovo_intervento']['cambio_personale'] = False
+        context.user_data['fase'] = 'selezione_capopartenza'
+        
+        vigili = get_vigili_attivi()
+        keyboard = []
+        for vigile_id, nome, cognome, qualifica in vigili:
+            keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "👨‍🚒 **CAPOPARTENZA**\n\n"
+            "Seleziona il capopartenza:",
+            reply_markup=reply_markup
+        )
+
+async def gestisci_cambio_personale(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    context.user_data['nuovo_intervento']['cambio_personale'] = (callback_data == "cambio_si")
+    context.user_data['fase'] = 'selezione_capopartenza'
+    
+    vigili = get_vigili_attivi()
+    keyboard = []
+    for vigile_id, nome, cognome, qualifica in vigili:
+        keyboard.append([InlineKeyboardButton(f"👨‍🚒 {cognome} {nome} ({qualifica})", callback_data=f"capo_{vigile_id}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "👨‍🚒 **CAPOPARTENZA**\n\n"
+        "Seleziona il capopartenza:",
+        reply_markup=reply_markup
+    )
+
+async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    vigile_id = int(callback_data.replace('capo_', ''))
+    vigile = get_vigile_by_id(vigile_id)
+    
+    context.user_data['nuovo_intervento']['capopartenza_id'] = vigile_id
+    context.user_data['nuovo_intervento']['capopartenza'] = f"{vigile[1]} {vigile[2]}"
+    context.user_data['fase'] = 'selezione_autista'
+    
+    vigili = get_vigili_attivi()
+    keyboard = []
+    for vigile_id, nome, cognome, qualifica in vigili:
+        if vigile_id != context.user_data['nuovo_intervento']['capopartenza_id']:
+            keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "🚗 **AUTISTA**\n\n"
+        "Seleziona l'autista:",
+        reply_markup=reply_markup
+    )
+
+async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    vigile_id = int(callback_data.replace('autista_', ''))
+    vigile = get_vigile_by_id(vigile_id)
+    
+    context.user_data['nuovo_intervento']['autista_id'] = vigile_id
+    context.user_data['nuovo_intervento']['autista'] = f"{vigile[1]} {vigile[2]}"
+    
+    partecipanti_attuali = context.user_data['nuovo_intervento'].get('partecipanti', [])
+    if context.user_data['nuovo_intervento']['capopartenza_id'] not in partecipanti_attuali:
+        partecipanti_attuali.append(context.user_data['nuovo_intervento']['capopartenza_id'])
+    if vigile_id not in partecipanti_attuali:
+        partecipanti_attuali.append(vigile_id)
+    
+    context.user_data['nuovo_intervento']['partecipanti'] = partecipanti_attuali
+    context.user_data['fase'] = 'selezione_vigili'
+    
+    tutti_vigili = get_vigili_attivi()
+    context.user_data['vigili_da_selezionare'] = [
+        vigile for vigile in tutti_vigili 
+        if vigile[0] not in context.user_data['nuovo_intervento']['partecipanti']
+    ]
+    context.user_data['vigili_selezionati'] = []
+    
+    await mostra_selezione_vigili(query, context)
+
+async def mostra_selezione_vigili(query, context):
+    vigili_da_selezionare = context.user_data['vigili_da_selezionare']
+    
+    if not vigili_da_selezionare:
+        context.user_data['fase'] = 'inserisci_comune'
+        await query.edit_message_text(
+            "🏘️ **COMUNE**\n\n"
+            "Inserisci il comune dell'intervento:"
+        )
+        return
+    
+    vigile_corrente = vigili_da_selezionare[0]
+    vigile_id, nome, cognome, qualifica = vigile_corrente
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Sì", callback_data=f"vigile_si_{vigile_id}"),
+            InlineKeyboardButton("❌ No", callback_data=f"vigile_no_{vigile_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"👨‍🚒 **PARTECIPANTI**\n\n"
+        f"**{cognome} {nome}** ({qualifica})\n"
+        f"Ha partecipato all'intervento?",
+        reply_markup=reply_markup
+    )
+
+async def gestisci_selezione_vigile(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    parts = callback_data.split('_')
+    scelta = parts[1]
+    vigile_id = int(parts[2])
+    
+    if scelta == 'si':
+        if vigile_id not in context.user_data['nuovo_intervento']['partecipanti']:
+            context.user_data['nuovo_intervento']['partecipanti'].append(vigile_id)
+    
+    context.user_data['vigili_da_selezionare'] = context.user_data['vigili_da_selezionare'][1:]
+    
+    await mostra_selezione_vigili(query, context)
+
+async def gestisci_comune(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    comune = update.message.text.strip()
+    comune_normalizzato = normalizza_comune(comune)
+    context.user_data['nuovo_intervento']['comune'] = comune_normalizzato
+    context.user_data['fase'] = 'inserisci_via'
+    
+    await update.message.reply_text(
+        "📍 **VIA**\n\n"
+        "Inserisci la via dell'intervento:"
+    )
+
+async def gestisci_via(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    via = update.message.text.strip()
+    context.user_data['nuovo_intervento']['via'] = via
+    
+    comune = context.user_data['nuovo_intervento'].get('comune', '')
+    indirizzo_completo = f"{comune}, {via}" if comune else via
+    context.user_data['nuovo_intervento']['indirizzo'] = indirizzo_completo
+    
+    context.user_data['fase'] = 'tipologia_intervento'
+    await mostra_selezione_tipologia_paginata(update, context)
+
+# === GESTIONE TIPOLOGIA NEL FLUSSO NUOVO INTERVENTO - VERSIONE CORRETTA ===
+async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    print(f"DEBUG: Callback ricevuto: {callback_data}")  # Debug
+    
+    if callback_data.startswith("tipopage_"):
+        # Navigazione pagine
+        page = int(callback_data.replace('tipopage_', ''))
+        await mostra_selezione_tipologia_paginata(query, context, page)
+        return
+    
+    elif callback_data == "tipologia_altro":
+        # Tipologia personalizzata
+        context.user_data['fase'] = 'inserisci_tipologia_personalizzata'
+        await query.edit_message_text(
+            "✏️ **TIPOLOGIA PERSONALIZZATA**\n\n"
+            "Inserisci la tipologia di intervento:"
+        )
+        return
+    
+    else:
+        # Selezione tipologia dalla lista
+        print(f"DEBUG: Cerco tipologia per callback: {callback_data}")  # Debug
+        
+        # Verifica se il callback esiste nel mapping
+        if callback_data in TIPOLOGIE_MAPPING:
+            tipologia_completa = TIPOLOGIE_MAPPING[callback_data][1]
+            display_name = TIPOLOGIE_MAPPING[callback_data][0]
+            
+            print(f"DEBUG: Tipologia trovata - Completa: {tipologia_completa}, Display: {display_name}")  # Debug
+            
+            context.user_data['nuovo_intervento']['tipologia'] = tipologia_completa
+            context.user_data['fase'] = 'km_finali'
+            
+            await query.edit_message_text(
+                f"✅ Tipologia selezionata: **{display_name}**\n\n"
+                "🛣️ **KM FINALI**\n\n"
+                "Inserisci i km finali del mezzo (solo numeri):"
+            )
+        else:
+            print(f"DEBUG: Callback NON trovato nel mapping: {callback_data}")  # Debug
+            await query.edit_message_text(
+                "❌ Errore nella selezione della tipologia. Riprova.",
+                reply_markup=crea_tastiera_tipologie_paginata(0)
+            )
+
+async def gestisci_tipologia_personalizzata(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tipologia = update.message.text.strip()
+    context.user_data['nuovo_intervento']['tipologia'] = tipologia
+    context.user_data['fase'] = 'km_finali'
+    
+    await update.message.reply_text(
+        f"✅ Tipologia personalizzata salvata: **{tipologia}**\n\n"
+        "🛣️ **KM FINALI**\n\n"
+        "Inserisci i km finali del mezzo (solo numeri):"
+    )
+
+async def gestisci_km_finali(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        km_finali = int(update.message.text.strip())
+        targa = context.user_data['nuovo_intervento']['mezzo_targa']
+        ultimi_km = get_ultimi_km_mezzo(targa)
+        
+        if km_finali < ultimi_km:
+            await update.message.reply_text(
+                f"❌ **ATTENZIONE: Km finali inferiori ai precedenti!**\n\n"
+                f"Ultimi km registrati: {ultimi_km}\n"
+                f"Km inseriti: {km_finali}\n\n"
+                f"Controlla i dati e inserisci nuovamente i km finali:"
+            )
+            return
+        
+        context.user_data['nuovo_intervento']['km_finali'] = km_finali
+        context.user_data['fase'] = 'litri_riforniti'
+        
+        await update.message.reply_text(
+            "⛽ **LITRI RIFORNITI**\n\n"
+            "Inserisci i litri riforniti nel mezzo (solo numeri):"
+        )
+        
+    except ValueError:
+        await update.message.reply_text("❌ Valore non valido! Inserisci solo numeri interi:")
+
+async def gestisci_litri_riforniti(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        litri_riforniti = int(update.message.text.strip())
+        if litri_riforniti < 0:
+            raise ValueError("Valore negativo")
+        
+        context.user_data['nuovo_intervento']['litri_riforniti'] = litri_riforniti
+        context.user_data['fase'] = 'conferma'
+        
+        await mostra_riepilogo(update, context)
+        
+    except ValueError:
+        await update.message.reply_text("❌ Valore non valido! Inserisci solo numeri interi:")
+
+async def mostra_riepilogo(update, context):
+    dati = context.user_data['nuovo_intervento']
+    
+    partecipanti_nomi = []
+    for vigile_id in dati['partecipanti']:
+        vigile = get_vigile_by_id(vigile_id)
+        if vigile:
+            partecipanti_nomi.append(f"{vigile[1]} {vigile[2]}")
+    
+    partecipanti_nomi = list(dict.fromkeys(partecipanti_nomi))
+    
+    cambio_personale = "✅ Sì" if dati.get('cambio_personale', False) else "❌ No"
+    km_finali = dati.get('km_finali', 'Non specificato')
+    litri_riforniti = dati.get('litri_riforniti', 'Non specificato')
+    
+    durata = calcola_durata_intervento(dati['data_uscita_completa'], dati.get('data_rientro_completa'))
+    
+    riepilogo = f"""
+📋 **RIEPILOGO INTERVENTO**
+
+🔢 **Progressivo Erba:** #{dati['numero_erba']}
+📄 **Rapporto Como:** {dati['rapporto_como']}/{dati['progressivo_como']}
+📅 **Uscita:** {datetime.strptime(dati['data_uscita_completa'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')}
+📅 **Rientro:** {datetime.strptime(dati['data_rientro_completa'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if dati.get('data_rientro_completa') else 'Non specificato'}
+⏱️ **Durata:** {durata}
+🚒 **Mezzo:** {dati['mezzo_targa']} - {dati['mezzo_tipo']}
+🔄 **Cambio personale:** {cambio_personale}
+🛣️ **Km finali:** {km_finali}
+⛽ **Litri riforniti:** {litri_riforniti}
+👨‍🚒 **Capopartenza:** {dati['capopartenza']}
+🚗 **Autista:** {dati['autista']}
+🚨 **Tipologia:** {dati.get('tipologia', 'Non specificata')}
+👥 **Partecipanti:** {', '.join(partecipanti_nomi)}
+🏘️ **Comune:** {dati.get('comune', 'Non specificato')}
+📍 **Via:** {dati.get('via', 'Non specificata')}
+"""
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Conferma", callback_data="conferma_si"),
+            InlineKeyboardButton("❌ Annulla", callback_data="conferma_no")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if hasattr(update, 'message'):
+        await update.message.reply_text(riepilogo, reply_markup=reply_markup)
+    else:
+        await update.edit_message_text(riepilogo, reply_markup=reply_markup)
+
+async def conferma_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    if callback_data == "conferma_si":
+        try:
+            dati = context.user_data['nuovo_intervento']
+            
+            intervento_id = inserisci_intervento(dati)
+            
+            await query.edit_message_text(
+                f"✅ **INTERVENTO REGISTRATO!**\n\n"
+                f"Progressivo Erba: #{dati['numero_erba']}\n"
+                f"Rapporto Como: {dati['rapporto_como']}/{dati['progressivo_como']}\n\n"
+                f"L'intervento è stato salvato correttamente."
+            )
+            
+        except Exception as e:
+            await query.edit_message_text(f"❌ Errore durante il salvataggio: {str(e)}")
+    else:
+        await query.edit_message_text("❌ Intervento annullato.")
+    
+    for key in ['nuovo_intervento', 'fase', 'vigili_da_selezionare', 'vigili_selezionati']:
+        if key in context.user_data:
+            del context.user_data[key]
+
+# === GESTIONE AMMINISTRATIVA ===
+async def gestione_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Solo gli amministratori possono accedere a questa funzione.")
+        return
+        
+    keyboard = [
+        [InlineKeyboardButton("👥 Gestione Vigili", callback_data="admin_vigili")],
+        [InlineKeyboardButton("🚒 Gestione Mezzi", callback_data="admin_mezzi")],
+        [InlineKeyboardButton("✏️ Modifica Intervento", callback_data="modifica_intervento")],
+        [InlineKeyboardButton("📤 Invia CSV Admin", callback_data="invia_csv_admin")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "⚙️ **GESTIONE AMMINISTRATIVA**\n\n"
+        "Seleziona un'operazione:",
+        reply_markup=reply_markup
+    )
+
+async def gestione_vigili_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    keyboard = [
+        [InlineKeyboardButton("👥 Lista Vigili", callback_data="lista_vigili")],
+        [InlineKeyboardButton("📥 Importa Vigili .csv", callback_data="importa_vigili")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "👥 **GESTIONE VIGILI**\n\n"
+        "Seleziona un'operazione:",
+        reply_markup=reply_markup
+    )
+
+async def gestione_mezzi_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    keyboard = [
+        [InlineKeyboardButton("🚒 Lista Mezzi", callback_data="lista_mezzi")],
+        [InlineKeyboardButton("📥 Importa Mezzi .csv", callback_data="importa_mezzi_info")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🚒 **GESTIONE MEZZI**\n\n"
+        "Seleziona un'operazione:",
+        reply_markup=reply_markup
+    )
+
+async def importa_mezzi_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    await query.edit_message_text(
+        "📥 **IMPORTA MEZZI DA CSV**\n\n"
+        "Per aggiungere nuovi mezzi, invia un file CSV con questa formattazione:\n\n"
+        "Targa,Tipo,Stato\n"
+        "AB123CD,APS,1\n"
+        "EF456GH,ABP,0\n\n"
+        "I mezzi verranno aggiunti automaticamente al database."
+    )
+
+async def mostra_lista_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    vigili = get_tutti_vigili()
+    if not vigili:
+        await query.edit_message_text("❌ Nessun vigile trovato nel database.")
+        return
+    
+    messaggio = "👥 **ELENCO COMPLETO VIGILI**\n\n"
+    for vigile in vigili:
+        id_v, nome, cognome, qualifica, grado, nautica, saf, tpss, atp, attivo = vigile
+        status = "🟢" if attivo else "🔴"
+        specialita = []
+        if nautica: specialita.append("🛥️")
+        if saf: specialita.append("🔗")
+        if tpss: specialita.append("🚑")
+        if atp: specialita.append("🤿")
+        
+        messaggio += f"{status} **{cognome} {nome}** (ID: {id_v})\n"
+        messaggio += f"   {qualifica} | Patente: {grado} {''.join(specialita)}\n\n"
+    
+    await query.edit_message_text(messaggio)
+
+async def mostra_lista_mezzi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    mezzi = get_tutti_mezzi()
+    if not mezzi:
+        await query.edit_message_text("❌ Nessun mezzo trovato nel database.")
+        return
+    
+    messaggio = "🚒 **ELENCO MEZZI**\n\n"
+    for mezzo in mezzi:
+        id_m, targa, tipo, attivo = mezzo
+        status = "🟢" if attivo else "🔴"
+        messaggio += f"{status} **{targa}** - {tipo}\n"
+    
+    await query.edit_message_text(messaggio)
+
+async def importa_vigili_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    await query.edit_message_text(
+        "📥 **IMPORTA VIGILI DA CSV**\n\n"
+        "Invia un file CSV con l'elenco dei vigili.\n\n"
+        "Formattazione richiesta:\n"
+        "Nome,Cognome,Qualifica,Grado Patente,Patente Nautica (1/0),SAF (1/0),TPSS (1/0),ATP (1/0),Stato (1/0)\n\n"
+        "Esempio:\n"
+        "Mario,Rossi,CSV,III,1,0,1,0,1"
+    )
 
 # === MODIFICA INTERVENTO ===
 async def avvia_modifica_intervento(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2140,7 +2782,7 @@ async def gestisci_selezione_campo(update: Update, context: ContextTypes.DEFAULT
         
         await query.edit_message_text(messaggi_campi.get(campo, "Inserisci il nuovo valore:"))
 
-# === GESTIONE TIPOLOGIA NEL FLUSSO MODIFICA INTERVENTO ===
+# === GESTIONE TIPOLOGIA NEL FLUSSO MODIFICA INTERVENTO - VERSIONE CORRETTA ===
 async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
     try:
@@ -2149,12 +2791,16 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
         if "Query is too old" in str(e):
             return
     
+    print(f"DEBUG MODIFICA: Callback ricevuto: {callback_data}")  # Debug
+    
     if callback_data.startswith("tipopage_"):
+        # Navigazione pagine
         page = int(callback_data.replace('tipopage_', ''))
         await mostra_selezione_tipologia_paginata(query, context, page)
         return
     
     elif callback_data == "tipologia_altro":
+        # Tipologia personalizzata
         context.user_data['fase_modifica'] = 'inserisci_tipologia_modifica'
         await query.edit_message_text(
             "✏️ **MODIFICA TIPOLOGIA**\n\n"
@@ -2163,9 +2809,14 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
         return
     
     else:
+        # Selezione tipologia dalla lista
+        print(f"DEBUG MODIFICA: Cerco tipologia per callback: {callback_data}")  # Debug
+        
         if callback_data in TIPOLOGIE_MAPPING:
             tipologia_completa = TIPOLOGIE_MAPPING[callback_data][1]
             display_name = TIPOLOGIE_MAPPING[callback_data][0]
+            
+            print(f"DEBUG MODIFICA: Tipologia trovata - Completa: {tipologia_completa}, Display: {display_name}")  # Debug
             
             rapporto = context.user_data['modifica_intervento']['rapporto']
             progressivo = context.user_data['modifica_intervento']['progressivo']
@@ -2178,10 +2829,12 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
                 f"Nuova tipologia: {display_name}"
             )
             
+            # Pulisci lo stato
             for key in ['modifica_intervento', 'fase_modifica']:
                 if key in context.user_data:
                     del context.user_data[key]
         else:
+            print(f"DEBUG MODIFICA: Callback NON trovato nel mapping: {callback_data}")  # Debug
             await query.edit_message_text(
                 "❌ Errore nella selezione della tipologia. Riprova.",
                 reply_markup=crea_tastiera_tipologie_paginata(0)
@@ -2380,11 +3033,11 @@ async def mostra_statistiche(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await update.message.reply_text(
         "📊 **STATISTICHE**\n\n"
-        "Seleziona l'anno per visualizzare le statistiche:",
+        "Seleziona l'anno per le statistiche:",
         reply_markup=reply_markup
     )
 
-async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYPE, anno: str):
+async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
     try:
         await query.answer()
@@ -2392,562 +3045,430 @@ async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYP
         if "Query is too old" in str(e):
             return
     
-    if anno == 'tutti':
+    if callback_data == "stats_tutti":
         stats = get_statistiche_anno()
         titolo = "TUTTI GLI ANNI"
     else:
+        anno = callback_data.replace('stats_', '')
         stats = get_statistiche_anno(anno)
         titolo = anno
     
+    if not stats['totale_interventi']:
+        await query.edit_message_text(f"📊 **STATISTICHE {titolo}**\n\nNessun dato disponibile.")
+        return
+    
     messaggio = f"📊 **STATISTICHE {titolo}**\n\n"
-    messaggio += f"📈 **Totale interventi:** {stats['totale_interventi']}\n"
-    messaggio += f"🚒 **Totale partenze:** {stats['totale_partenze']}\n\n"
+    messaggio += f"🔢 **Interventi totali:** {stats['totale_interventi']}\n"
+    messaggio += f"🚒 **Partenze totali:** {stats['totale_partenze']}\n\n"
     
+    # Top 5 tipologie
     if stats['tipologie']:
-        messaggio += "📋 **Per tipologia:**\n"
-        for tipologia, count in stats['tipologie'].items():
-            if tipologia:
-                messaggio += f"• {tipologia}: {count}\n"
+        messaggio += "🚨 **TOP 5 TIPOLOGIE:**\n"
+        tipologie_ordinate = sorted(stats['tipologie'].items(), key=lambda x: x[1], reverse=True)[:5]
+        for tipologia, count in tipologie_ordinate:
+            nome_breve = next((display for callback, (display, full) in TIPOLOGIE_MAPPING.items() if full == tipologia), tipologia)
+            messaggio += f"• {nome_breve}: {count}\n"
         messaggio += "\n"
     
+    # Top 5 mezzi
     if stats['mezzi']:
-        messaggio += "🚒 **Per mezzo:**\n"
-        for mezzo, count in stats['mezzi'].items():
-            if mezzo:
-                messaggio += f"• {mezzo}: {count}\n"
-        messaggio += "\n"
-    
-    if stats['mensili']:
-        messaggio += "📅 **Andamento mensile:**\n"
-        for mese in sorted(stats['mensili'].keys()):
-            count = stats['mensili'][mese]
-            nome_mese = datetime.strptime(mese, '%m').strftime('%B')
-            messaggio += f"• {nome_mese}: {count}\n"
+        messaggio += "🚒 **TOP 5 MEZZI:**\n"
+        mezzi_ordinati = sorted(stats['mezzi'].items(), key=lambda x: x[1], reverse=True)[:5]
+        for mezzo, count in mezzi_ordinati:
+            messaggio += f"• {mezzo}: {count}\n"
     
     await query.edit_message_text(messaggio)
 
+# === ULTIMI INTERVENTI ===
+async def ultimi_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    interventi = get_ultimi_interventi_attivi()
+    
+    if not interventi:
+        await update.message.reply_text("📋 **ULTIMI INTERVENTI**\n\nNessun intervento attivo trovato.")
+        return
+    
+    messaggio = "📋 **ULTIMI INTERVENTI ATTIVI**\n\n"
+    for intervento in interventi:
+        id_int, rapporto, progressivo, num_erba, data_uscita, indirizzo = intervento
+        data = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
+        messaggio += f"🔢 #{num_erba} - R{rapporto}/{progressivo}\n"
+        messaggio += f"📅 {data} - {indirizzo}\n\n"
+    
+    await update.message.reply_text(messaggio)
+
+# === CERCA RAPPORTO ===
+async def cerca_rapporto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['cerca_rapporto'] = {}
+    context.user_data['fase_cerca'] = 'anno'
+    
+    await update.message.reply_text(
+        "🔍 **CERCA RAPPORTO**\n\n"
+        "Inserisci l'ANNO del rapporto Como da cercare (es: 2024):"
+    )
+
+async def gestisci_anno_cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    anno = update.message.text.strip()
+    
+    if not anno.isdigit() or len(anno) != 4:
+        await update.message.reply_text("❌ Anno non valido! Inserisci 4 cifre (es: 2024):")
+        return
+    
+    context.user_data['cerca_rapporto']['anno'] = anno
+    context.user_data['fase_cerca'] = 'rapporto'
+    
+    await update.message.reply_text(
+        f"📅 Anno selezionato: {anno}\n\n"
+        "Inserisci il numero del rapporto Como da cercare:"
+    )
+
+async def gestisci_rapporto_cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rapporto = update.message.text.strip()
+    
+    if not rapporto.isdigit():
+        await update.message.reply_text("❌ Inserisci solo numeri! Riprova:")
+        return
+    
+    anno = context.user_data['cerca_rapporto']['anno']
+    interventi = get_interventi_per_rapporto(rapporto, anno)
+    
+    if not interventi:
+        await update.message.reply_text(
+            f"❌ Nessun intervento trovato per il rapporto R{rapporto} nell'anno {anno}."
+        )
+        for key in ['cerca_rapporto', 'fase_cerca']:
+            if key in context.user_data:
+                del context.user_data[key]
+        return
+    
+    messaggio = f"🔍 **INTERVENTI R{rapporto} - {anno}**\n\n"
+    for intervento in interventi:
+        if len(intervento) >= 16:
+            id_int, rapporto_db, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:16]
+            
+            data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
+            durata = calcola_durata_intervento(data_uscita, data_rientro)
+            
+            messaggio += f"🔢 **#{num_erba}** - Progressivo: {progressivo}\n"
+            messaggio += f"📅 {data_uscita_fmt} - ⏱️ {durata}\n"
+            messaggio += f"🚒 {mezzo_targa} - {mezzo_tipo}\n"
+            messaggio += f"👨‍🚒 Capo: {capo}\n"
+            messaggio += f"📍 {indirizzo}\n"
+            if tipologia:
+                nome_breve = next((display for callback, (display, full) in TIPOLOGIE_MAPPING.items() if full == tipologia), tipologia)
+                messaggio += f"🚨 {nome_breve}\n"
+            messaggio += "\n"
+    
+    await update.message.reply_text(messaggio)
+    
+    for key in ['cerca_rapporto', 'fase_cerca']:
+        if key in context.user_data:
+            del context.user_data[key]
+
 # === HELP ===
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🆘 **GUIDA BOT INTERVENTI VVF**
-
-🎯 **FUNZIONALITÀ PRINCIPALI:**
-
-👤 **UTENTE:**
-• ➕ Nuovo Intervento - Registra un nuovo intervento
-• 📋 Ultimi Interventi - Visualizza gli ultimi 10 interventi
-• 📊 Statistiche - Statistiche annuali
-• 🔍 Cerca Rapporto - Cerca interventi per rapporto Como
-• 📤 Estrazione Dati - Estrai dati in formato CSV
-
-👨‍💻 **ADMIN:**
-• 👥 Gestisci Richieste - Approva nuovi utenti e gestisci utenti
-• ⚙️ Gestione - Gestisci vigili, mezzi e modifica interventi
-• 📤 Esporta Dati - Scarica dati completi in CSV
-• 📥 Importa Dati - Invia file CSV per importare dati
-
-🔧 **SISTEMA:**
-• ✅ Always online con keep-alive
-• 💾 Backup automatico ogni 25 minuti
-• 🔒 Accesso controllato
-• 📱 Interfaccia ottimizzata per mobile
-
-📁 **IMPORTAZIONE:**
-Gli admin possono importare dati inviando un file CSV con la stessa formattazione dell'esportazione.
-"""
-
-    await update.message.reply_text(help_text, reply_markup=crea_tastiera_fisica(update.effective_user.id))
-
-# === GESTIONE MESSAGGI PRINCIPALE ===
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip()
+    is_admin_user = is_admin(user_id)
+    
+    messaggio = "🆘 **GUIDA ALL'USO DEL BOT**\n\n"
+    messaggio += "📋 **COMANDI PRINCIPALI:**\n"
+    messaggio += "• /start - Riavvia il bot\n"
+    messaggio += "• ➕ Nuovo Intervento - Registra un nuovo intervento\n"
+    messaggio += "• 📋 Ultimi Interventi - Mostra gli interventi recenti\n"
+    messaggio += "• 📊 Statistiche - Visualizza le statistiche\n"
+    messaggio += "• 🔍 Cerca Rapporto - Cerca interventi per rapporto\n"
+    messaggio += "• 📤 Estrazione Dati - Esporta dati in CSV\n\n"
+    
+    if is_admin_user:
+        messaggio += "⚙️ **COMANDI AMMINISTRATORE:**\n"
+        messaggio += "• 👥 Gestisci Richieste - Gestisci richieste accesso\n"
+        messaggio += "• ⚙️ Gestione - Menu amministrativo\n"
+        messaggio += "• 📥 Importa CSV - Carica dati da file CSV\n\n"
+    
+    messaggio += "💡 **SUGGERIMENTI:**\n"
+    messaggio += "• Usa la tastiera fisica per navigare velocemente\n"
+    messaggio += "• Segui il flusso guidato per nuovi interventi\n"
+    messaggio += "• Controlla sempre i dati prima di confermare"
+    
+    await update.message.reply_text(messaggio)
 
+# === GESTIONE MESSAGGI DI TESTO ===
+async def gestisci_messaggio_testo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    testo = update.message.text
+    
     if not is_user_approved(user_id):
-        if text == "🚀 Richiedi Accesso":
+        if testo == "🚀 Richiedi Accesso":
             await start(update, context)
         return
-
-    fase = context.user_data.get('fase')
-    fase_modifica = context.user_data.get('fase_modifica')
     
-    if fase == 'inserisci_rapporto':
-        await gestisci_rapporto_como(update, context)
-        return
-    elif fase == 'ora_uscita':
-        await gestisci_ora_uscita(update, context)
-        return
-    elif fase == 'ora_rientro':
-        await gestisci_ora_rientro(update, context)
-        return
-    elif fase == 'inserisci_comune':
-        await gestisci_comune(update, context)
-        return
-    elif fase == 'inserisci_via':
-        await gestisci_via(update, context)
-        return
-    elif fase == 'inserisci_tipologia_personalizzata':
-        await gestisci_tipologia_personalizzata(update, context)
-        return
-    elif fase == 'km_finali':
-        await gestisci_km_finali(update, context)
-        return
-    elif fase == 'litri_riforniti':
-        await gestisci_litri_riforniti(update, context)
-        return
-    elif fase_modifica == 'anno':
-        await gestisci_anno_modifica(update, context)
-        return
-    elif fase_modifica == 'rapporto':
-        await gestisci_rapporto_modifica(update, context)
-        return
-    elif fase_modifica == 'progressivo':
-        await gestisci_progressivo_modifica(update, context)
-        return
-    elif fase_modifica == 'inserisci_valore':
-        await gestisci_valore_modifica(update, context)
-        return
-    elif fase_modifica == 'modifica_orari':
-        await gestisci_modifica_orari(update, context)
-        return
-    elif fase_modifica == 'modifica_indirizzo':
-        await gestisci_modifica_indirizzo(update, context)
-        return
-    elif fase_modifica == 'inserisci_tipologia_modifica':
-        if text.startswith("/"):
-            pass
-        else:
-            tipologia = text.strip()
+    # Controlla se siamo in un flusso attivo
+    if 'fase' in context.user_data:
+        fase = context.user_data['fase']
+        
+        if fase == 'inserisci_rapporto':
+            await gestisci_rapporto_como(update, context)
+        elif fase == 'ora_uscita':
+            await gestisci_ora_uscita(update, context)
+        elif fase == 'ora_rientro':
+            await gestisci_ora_rientro(update, context)
+        elif fase == 'inserisci_comune':
+            await gestisci_comune(update, context)
+        elif fase == 'inserisci_via':
+            await gestisci_via(update, context)
+        elif fase == 'inserisci_tipologia_personalizzata':
+            await gestisci_tipologia_personalizzata(update, context)
+        elif fase == 'km_finali':
+            await gestisci_km_finali(update, context)
+        elif fase == 'litri_riforniti':
+            await gestisci_litri_riforniti(update, context)
+    
+    elif 'fase_modifica' in context.user_data:
+        fase_modifica = context.user_data['fase_modifica']
+        
+        if fase_modifica == 'anno':
+            await gestisci_anno_modifica(update, context)
+        elif fase_modifica == 'rapporto':
+            await gestisci_rapporto_modifica(update, context)
+        elif fase_modifica == 'progressivo':
+            await gestisci_progressivo_modifica(update, context)
+        elif fase_modifica == 'inserisci_tipologia_modifica':
+            # Gestione tipologia personalizzata in modifica
+            tipologia = update.message.text.strip()
             rapporto = context.user_data['modifica_intervento']['rapporto']
             progressivo = context.user_data['modifica_intervento']['progressivo']
+            
             aggiorna_intervento(rapporto, progressivo, 'tipologia', tipologia)
+            
             await update.message.reply_text(
                 f"✅ **TIPOLOGIA AGGIORNATA!**\n\n"
                 f"Rapporto: R{rapporto}/{progressivo}\n"
                 f"Nuova tipologia: {tipologia}"
             )
+            
             for key in ['modifica_intervento', 'fase_modifica']:
                 if key in context.user_data:
                     del context.user_data[key]
-            return
-    
-    if text == "➕ Nuovo Intervento":
-        for key in ['nuovo_intervento', 'fase', 'vigili_da_selezionare', 'vigili_selezionati']:
-            if key in context.user_data:
-                del context.user_data[key]
-        await avvia_nuovo_intervento(update, context)
-    
-    elif text == "📋 Ultimi Interventi":
-        interventi = get_ultimi_interventi(10)
-        if not interventi:
-            await update.message.reply_text("📭 Nessun intervento registrato.")
-            return
         
-        messaggio = "📋 **ULTIMI 10 INTERVENTI**\n\n"
-        for intervento in interventi:
-            if len(intervento) >= 18:
-                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at, partecipanti = intervento
-                
-                try:
-                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
-                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M') if data_rientro else 'In corso'
-                    durata = calcola_durata_intervento(data_uscita, data_rientro)
-                except:
-                    data_uscita_fmt = data_uscita
-                    data_rientro_fmt = data_rientro or 'In corso'
-                    durata = "N/A"
-                    
-                cambio = "🔄" if cambio_personale else ""
-                km_info = f" | 🛣️{km_finali}km" if km_finali else ""
-                litri_info = f" | ⛽{litri_riforniti}L" if litri_riforniti else ""
-                    
-                messaggio += f"🔢 **#{num_erba}** - R{rapporto}/{progressivo} {cambio}\n"
-                messaggio += f"📅 {data_uscita_fmt} - {data_rientro_fmt} ({durata})\n"
-                messaggio += f"🚒 {mezzo_targa} - {mezzo_tipo}{km_info}{litri_info}\n"
-                messaggio += f"👨‍🚒 Capo: {capo}\n"
-                messaggio += f"🚗 Autista: {autista}\n"
-                messaggio += f"👥 Partecipanti: {partecipanti or 'Nessuno'}\n"
-                messaggio += f"🚨 {tipologia or 'Non specificata'}\n"
-                messaggio += f"📍 {comune}, {via}\n"
-                messaggio += "─" * 30 + "\n"
+        elif fase_modifica == 'modifica_indirizzo':
+            await gestisci_modifica_indirizzo(update, context)
+        elif fase_modifica == 'modifica_orari':
+            await gestisci_modifica_orari(update, context)
+        elif fase_modifica == 'inserisci_valore':
+            await gestisci_valore_modifica(update, context)
+    
+    elif 'fase_cerca' in context.user_data:
+        fase_cerca = context.user_data['fase_cerca']
         
-        await update.message.reply_text(messaggio)
-    
-    elif text == "📊 Statistiche":
-        await mostra_statistiche(update, context)
-    
-    elif text == "📤 Estrazione Dati":
-        await estrazione_dati(update, context)
-    
-    elif text == "/start 🔄":
-        await start(update, context)
-    
-    elif text == "🔍 Cerca Rapporto":
-        for key in ['fase_ricerca', 'anno_ricerca']:
-            if key in context.user_data:
-                del context.user_data[key]
-                
-        context.user_data['fase_ricerca'] = 'anno'
-        await update.message.reply_text("🔍 **RICERCA RAPPORTO**\n\nInserisci l'anno del rapporto:")
-    
-    elif text == "👥 Gestisci Richieste":
-        await gestisci_richieste(update, context)
-    
-    elif text == "⚙️ Gestione":
-        await gestione_admin(update, context)
-    
-    elif text == "🆘 Help":
-        await help_command(update, context)
-    
-    elif context.user_data.get('fase_ricerca') == 'anno':
-        anno = text.strip()
-        if anno.isdigit() and len(anno) == 4:
-            context.user_data['anno_ricerca'] = anno
-            context.user_data['fase_ricerca'] = 'rapporto'
-            await update.message.reply_text("Inserisci il numero del rapporto Como:")
-        else:
-            await update.message.reply_text("❌ Anno non valido! Inserisci 4 cifre (es: 2024):")
-    
-    elif context.user_data.get('fase_ricerca') == 'rapporto':
-        rapporto = text.strip()
-        anno = context.user_data.get('anno_ricerca')
-        
-        if rapporto.isdigit():
-            interventi = get_interventi_per_rapporto(rapporto, anno)
-            if not interventi:
-                await update.message.reply_text(f"❌ Nessun intervento trovato per il rapporto {rapporto}/{anno}")
-            else:
-                messaggio = f"🔍 **RISULTATI RICERCA R{rapporto}/{anno}**\n\n"
-                for intervento in interventi:
-                    if len(intervento) >= 18:
-                        id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento
-                        try:
-                            data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
-                            data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M') if data_rientro else 'In corso'
-                            durata = calcola_durata_intervento(data_uscita, data_rientro)
-                        except:
-                            data_uscita_fmt = data_uscita
-                            data_rientro_fmt = data_rientro or 'In corso'
-                            durata = "N/A"
-                            
-                        cambio = "🔄" if cambio_personale else ""
-                        km_info = f" | 🛣️{km_finali}km" if km_finali else ""
-                        litri_info = f" | ⛽{litri_riforniti}L" if litri_riforniti else ""
-                            
-                        messaggio += f"🔢 **#{num_erba}** - Prog: {progressivo} {cambio}\n"
-                        messaggio += f"📅 {data_uscita_fmt} - {data_rientro_fmt} ({durata})\n"
-                        messaggio += f"🚒 {mezzo_targa}{km_info}{litri_info}\n"
-                        messaggio += f"👨‍🚒 Capo: {capo}\n"
-                        messaggio += f"🚨 {tipologia or 'Non specificata'}\n"
-                        messaggio += f"📍 {comune}, {via}\n"
-                        messaggio += "─" * 30 + "\n"
-                
-                await update.message.reply_text(messaggio)
-        else:
-            await update.message.reply_text("❌ Numero rapporto non valido!")
-        
-        for key in ['fase_ricerca', 'anno_ricerca']:
-            if key in context.user_data:
-                del context.user_data[key]
+        if fase_cerca == 'anno':
+            await gestisci_anno_cerca(update, context)
+        elif fase_cerca == 'rapporto':
+            await gestisci_rapporto_cerca(update, context)
     
     else:
-        await update.message.reply_text("ℹ️ Usa i pulsanti per navigare.", reply_markup=crea_tastiera_fisica(user_id))
+        # Gestione comandi dalla tastiera fisica
+        if testo == "➕ Nuovo Intervento":
+            await avvia_nuovo_intervento(update, context)
+        elif testo == "📋 Ultimi Interventi":
+            await ultimi_interventi(update, context)
+        elif testo == "📊 Statistiche":
+            await mostra_statistiche(update, context)
+        elif testo == "🔍 Cerca Rapporto":
+            await cerca_rapporto(update, context)
+        elif testo == "📤 Estrazione Dati":
+            await estrazione_dati(update, context)
+        elif testo == "👥 Gestisci Richieste" and is_admin(user_id):
+            await gestisci_richieste(update, context)
+        elif testo == "⚙️ Gestione" and is_admin(user_id):
+            await gestione_admin(update, context)
+        elif testo == "/start 🔄":
+            await start(update, context)
+        elif testo == "🆘 Help":
+            await help_command(update, context)
 
-# === GESTIONE BOTTONI INLINE ===
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# === GESTIONE CALLBACK QUERY ===
+async def gestisci_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    callback_data = query.data
+    
     try:
         await query.answer()
     except BadRequest as e:
         if "Query is too old" in str(e):
             return
     
-    data = query.data
-    user_id = query.from_user.id
-
-    # Gestione nuovo intervento
-    if data.startswith("tipo_"):
-        await gestisci_scelta_tipo(update, context, data)
-    
-    elif data.startswith("collega_"):
-        intervento_id = int(data.replace('collega_', ''))
-        await gestisci_collega_intervento(update, context, intervento_id)
-    
-    elif data.startswith("data_"):
-        await gestisci_data_uscita(update, context, data)
-    
-    elif data.startswith("mezzo_"):
-        await gestisci_selezione_mezzo(update, context, data)
-    
-    elif data.startswith("cambio_"):
-        await gestisci_cambio_personale(update, context, data)
-    
-    elif data.startswith("capo_"):
-        await gestisci_selezione_capopartenza(update, context, data)
-    
-    elif data.startswith("autista_"):
-        await gestisci_selezione_autista(update, context, data)
-    
-    elif data.startswith("vigile_"):
-        await gestisci_selezione_vigile(update, context, data)
-    
-    # Gestione tipologia
-    elif data.startswith("tip_") or data.startswith("tipopage_") or data == "tipologia_altro":
-        fase = context.user_data.get('fase')
-        fase_modifica = context.user_data.get('fase_modifica')
-        
-        if fase == 'tipologia_intervento':
-            await gestisci_tipologia_intervento(update, context, data)
-        elif fase_modifica == 'modifica_tipologia':
-            await gestisci_tipologia_modifica(update, context, data)
+    # Gestione tipologie (pagine)
+    if callback_data.startswith("tipopage_"):
+        if 'fase_modifica' in context.user_data and context.user_data['fase_modifica'] == 'modifica_tipologia':
+            await gestisci_tipologia_modifica(update, context, callback_data)
         else:
-            await gestisci_tipologia_intervento(update, context, data)
+            await gestisci_tipologia_intervento(update, context, callback_data)
     
-    elif data.startswith("rientro_"):
-        await gestisci_data_rientro(update, context, data)
-    
-    elif data.startswith("conferma_"):
-        await conferma_intervento(update, context, data)
+    # Gestione nuovo intervento
+    elif callback_data in ["tipo_nuovo", "tipo_collegato"]:
+        await gestisci_scelta_tipo(update, context, callback_data)
+    elif callback_data.startswith("collega_"):
+        intervento_id = int(callback_data.replace('collega_', ''))
+        await gestisci_collega_intervento(update, context, intervento_id)
+    elif callback_data in ["data_oggi", "data_ieri"]:
+        await gestisci_data_uscita(update, context, callback_data)
+    elif callback_data in ["rientro_oggi", "rientro_ieri"]:
+        await gestisci_data_rientro(update, context, callback_data)
+    elif callback_data.startswith("mezzo_"):
+        await gestisci_selezione_mezzo(update, context, callback_data)
+    elif callback_data in ["cambio_si", "cambio_no"]:
+        await gestisci_cambio_personale(update, context, callback_data)
+    elif callback_data.startswith("capo_"):
+        await gestisci_selezione_capopartenza(update, context, callback_data)
+    elif callback_data.startswith("autista_"):
+        await gestisci_selezione_autista(update, context, callback_data)
+    elif callback_data.startswith("vigile_si_") or callback_data.startswith("vigile_no_"):
+        await gestisci_selezione_vigile(update, context, callback_data)
+    elif callback_data == "tipologia_altro":
+        if 'fase_modifica' in context.user_data and context.user_data['fase_modifica'] == 'modifica_tipologia':
+            await gestisci_tipologia_modifica(update, context, callback_data)
+        else:
+            await gestisci_tipologia_intervento(update, context, callback_data)
+    elif callback_data in TIPOLOGIE_MAPPING:
+        if 'fase_modifica' in context.user_data and context.user_data['fase_modifica'] == 'modifica_tipologia':
+            await gestisci_tipologia_modifica(update, context, callback_data)
+        else:
+            await gestisci_tipologia_intervento(update, context, callback_data)
+    elif callback_data in ["conferma_si", "conferma_no"]:
+        await conferma_intervento(update, context, callback_data)
     
     # Gestione richieste accesso
-    elif data == "richieste_attesa":
+    elif callback_data == "richieste_attesa":
         await mostra_richieste_attesa(update, context)
-    
-    elif data == "utenti_approvati":
+    elif callback_data == "utenti_approvati":
         await mostra_utenti_approvati(update, context)
-    
-    elif data.startswith("approva_"):
-        if not is_admin(user_id):
-            return
-            
-        user_id_approvare = int(data[8:])
+    elif callback_data.startswith("approva_"):
+        user_id_approvare = int(callback_data.replace('approva_', ''))
         approva_utente(user_id_approvare)
-        
-        try:
-            await context.bot.send_message(
-                user_id_approvare,
-                "✅ ACCESSO APPROVATO! Ora puoi usare tutte le funzioni del bot.\nUsa /start per iniziare."
-            )
-        except:
-            pass
-            
-        richieste_rimanenti = get_richieste_in_attesa()
-        if richieste_rimanenti:
-            messaggio = f"✅ Utente approvato! 📋 Richieste rimanenti: {len(richieste_rimanenti)}"
-        else:
-            messaggio = "✅ Utente approvato! 🎉 Tutte le richieste gestite."
-            
-        await query.edit_message_text(messaggio)
-
-    elif data.startswith("rifiuta_"):
-        if not is_admin(user_id):
-            return
-            
-        user_id_rifiutare = int(data[8:])
+        await query.edit_message_text(f"✅ Utente {user_id_approvare} approvato!")
+    elif callback_data.startswith("rifiuta_"):
+        user_id_rifiutare = int(callback_data.replace('rifiuta_', ''))
         rimuovi_utente(user_id_rifiutare)
-        
-        richieste_rimanenti = get_richieste_in_attesa()
-        if richieste_rimanenti:
-            messaggio = f"❌ Utente rifiutato! 📋 Richieste rimanenti: {len(richieste_rimanenti)}"
-        else:
-            messaggio = "❌ Utente rifiutato! 🎉 Tutte le richieste gestite."
-            
-        await query.edit_message_text(messaggio)
-    
-    # Gestione rimozione utenti
-    elif data.startswith("rimuovi_"):
-        user_id_rimuovere = int(data.replace('rimuovi_', ''))
+        await query.edit_message_text(f"❌ Richiesta di {user_id_rifiutare} rifiutata!")
+    elif callback_data.startswith("rimuovi_"):
+        user_id_rimuovere = int(callback_data.replace('rimuovi_', ''))
         await conferma_rimozione_utente(update, context, user_id_rimuovere)
-    
-    elif data.startswith("conferma_rimozione_"):
-        user_id_rimuovere = int(data.replace('conferma_rimozione_', ''))
+    elif callback_data.startswith("conferma_rimozione_"):
+        user_id_rimuovere = int(callback_data.replace('conferma_rimozione_', ''))
         await esegui_rimozione_utente(update, context, user_id_rimuovere)
+    elif callback_data == "annulla_rimozione":
+        await query.edit_message_text("❌ Rimozione annullata.")
     
-    elif data == "annulla_rimozione":
-        await query.edit_message_text("❌ Rimozione utente annullata.")
-    
-    # Gestione admin
-    elif data == "admin_vigili":
+    # Gestione amministrativa
+    elif callback_data == "admin_vigili":
         await gestione_vigili_admin(update, context)
-    
-    elif data == "admin_mezzi":
+    elif callback_data == "admin_mezzi":
         await gestione_mezzi_admin(update, context)
-    
-    elif data == "modifica_intervento":
+    elif callback_data == "modifica_intervento":
         await avvia_modifica_intervento(update, context)
-    
-    elif data == "export_menu":
-        await esporta_dati(update, context)
-    
-    elif data == "lista_vigili":
+    elif callback_data == "invia_csv_admin":
+        await invia_csv_admin_manual(update, context)
+    elif callback_data == "lista_vigili":
         await mostra_lista_vigili(update, context)
-    
-    elif data == "lista_mezzi":
+    elif callback_data == "lista_mezzi":
         await mostra_lista_mezzi(update, context)
-    
-    elif data == "importa_vigili":
+    elif callback_data == "importa_vigili":
         await importa_vigili_csv(update, context)
-    
-    elif data == "importa_mezzi_info":
+    elif callback_data == "importa_mezzi_info":
         await importa_mezzi_info(update, context)
     
     # Gestione modifica intervento
-    elif data.startswith("campo_"):
-        campo = data.replace('campo_', '')
+    elif callback_data.startswith("campo_"):
+        campo = callback_data.replace('campo_', '')
         await gestisci_selezione_campo(update, context, campo)
-    
-    elif data.startswith("modmezzo_"):
-        targa = data.replace('modmezzo_', '')
+    elif callback_data.startswith("modmezzo_"):
+        targa = callback_data.replace('modmezzo_', '')
         await gestisci_valore_modifica_bottoni(update, context, 'mezzo', targa)
-    
-    elif data.startswith("modcapo_"):
-        vigile_id = int(data.replace('modcapo_', ''))
-        vigile = get_vigile_by_id(vigile_id)
+    elif callback_data.startswith("modcapo_"):
+        vigile_id = callback_data.replace('modcapo_', '')
+        vigile = get_vigile_by_id(int(vigile_id))
         if vigile:
             nome_completo = f"{vigile[1]} {vigile[2]}"
             await gestisci_valore_modifica_bottoni(update, context, 'capopartenza', nome_completo)
-    
-    elif data.startswith("modautista_"):
-        vigile_id = int(data.replace('modautista_', ''))
-        vigile = get_vigile_by_id(vigile_id)
+    elif callback_data.startswith("modautista_"):
+        vigile_id = callback_data.replace('modautista_', '')
+        vigile = get_vigile_by_id(int(vigile_id))
         if vigile:
             nome_completo = f"{vigile[1]} {vigile[2]}"
             await gestisci_valore_modifica_bottoni(update, context, 'autista', nome_completo)
     
     # Gestione statistiche
-    elif data.startswith("stats_"):
-        anno = data.replace('stats_', '')
-        await gestisci_statistiche(update, context, anno)
+    elif callback_data.startswith("stats_"):
+        await gestisci_statistiche(update, context, callback_data)
     
-    # Gestione esportazione
-    elif data == "export_anno":
-        await gestisci_export_anno(update, context)
-    
-    elif data == "export_tutto":
-        await esegui_export(update, context, 'tutto')
-    
-    elif data.startswith("export_anno_"):
-        anno = data.replace('export_anno_', '')
-        await esegui_export(update, context, 'anno', anno)
-    
-    elif data == "export_vigili":
+    # Gestione esportazione dati
+    elif callback_data == "export_interventi":
+        await esegui_export_interventi(update, context)
+    elif callback_data == "export_vigili":
         await esegui_export_vigili(update, context)
-    
-    elif data == "export_mezzi":
+    elif callback_data == "export_mezzi":
         await esegui_export_mezzi(update, context)
-    
-    elif data == "export_utenti":
+    elif callback_data == "export_utenti":
         await esegui_export_utenti(update, context)
 
-# === ERROR HANDLER ===
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if isinstance(context.error, BadRequest) and "Query is too old" in str(context.error):
-        return
-    print(f"❌ Errore: {context.error}")
-# === HANDLER START ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name
+# === SCHEDULER INVIO CSV AUTOMATICO ===
+def avvia_scheduler_csv(context):
+    """Avvia lo scheduler per l'invio automatico dei CSV alle 23:55"""
+    now = datetime.now()
     
-    # Pulisci context.user_data
-    for key in list(context.user_data.keys()):
-        del context.user_data[key]
+    # Calcola il prossimo eseguimento alle 23:55
+    next_run = now.replace(hour=23, minute=55, second=0, microsecond=0)
+    if now >= next_run:
+        next_run += timedelta(days=1)
     
-    # Registra l'utente se non esiste
-    conn = sqlite3.connect(DATABASE_NAME)
-    c = conn.cursor()
-    c.execute('''INSERT OR IGNORE INTO utenti (user_id, username, nome, ruolo) 
-                 VALUES (?, ?, ?, 'in_attesa')''', 
-                 (user_id, update.effective_user.username, user_name))
-    conn.commit()
-    conn.close()
-
-    # Se l'utente non è approvato, invia richiesta agli admin
-    if not is_user_approved(user_id):
-        richieste = get_richieste_in_attesa()
-        for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    admin_id,
-                    f"🆕 NUOVA RICHIESTA ACCESSO\n\nUser: {user_name}\nID: {user_id}\nUsername: @{update.effective_user.username}\nRichieste in attesa: {len(richieste)}"
-                )
-            except Exception as e:
-                print(f"Errore nell'invio notifica admin: {e}")
-
-        await update.message.reply_text(
-            "🔄 **RICHIESTA DI ACCESSO INVIATA**\n\n"
-            "La tua richiesta è stata inviata agli amministratori.\n"
-            "Attendi l'approvazione per accedere a tutte le funzioni del bot.\n\n"
-            "Riceverai una notifica quando il tuo account verrà approvato.",
-            reply_markup=crea_tastiera_fisica(user_id)
-        )
-        return
-
-    # Utente approvato - mostra welcome message
-    if is_admin(user_id):
-        welcome_text = f"👨‍💻 **BENVENUTO ADMIN {user_name.upper()}!**\n\nAccesso completo a tutte le funzioni di gestione."
-    else:
-        welcome_text = f"👤 **BENVENUTO {user_name}!**\n\nAccesso alle funzioni operative del bot."
-
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=crea_tastiera_fisica(user_id)
+    delay = (next_run - now).total_seconds()
+    
+    print(f"⏰ Scheduler CSV avviato. Prossimo invio: {next_run} (tra {delay:.0f} secondi)")
+    
+    # Pianifica l'invio ricorrente ogni giorno alle 23:55
+    context.job_queue.run_daily(
+        scheduler_invio_csv,
+        time=time(hour=23, minute=55),
+        days=(0, 1, 2, 3, 4, 5, 6),
+        name="invio_csv_automatico"
     )
 
 # === MAIN ===
 def main():
-    print("🚀 Avvio Bot Interventi VVF...")
-    
-    print("🔄 Tentativo di ripristino database da backup...")
-    if not restore_database_from_gist():
-        print("🔄 Inizializzazione database nuovo...")
-        init_db()
-    
-    print("🔍 Verifica integrità database...")
+    # Verifica integrità database
     if not check_database_integrity():
-        print("🔄 Ricreazione database di emergenza...")
+        print("🚨 Database corrotto o incompleto! Ricreazione...")
         emergency_recreate_database()
     
+    # Ripristino da backup se disponibile
+    print("🔄 Verifica backup...")
+    restore_database_from_gist()
+    
+    # Avvia server Flask in thread separato
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("✅ Flask server started on port 10000")
     
+    # Avvia keep-alive aggressivo in thread separato
     keep_alive_thread = threading.Thread(target=keep_alive_aggressive, daemon=True)
     keep_alive_thread.start()
-    print("✅ Sistema keep-alive ULTRA-AGGRESSIVO attivato! Ping ogni 5 minuti")
     
+    # Avvia backup scheduler in thread separato
     backup_thread = threading.Thread(target=backup_scheduler, daemon=True)
     backup_thread.start()
-    print("✅ Scheduler backup attivato! Backup ogni 25 minuti")
     
+    # Crea application
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Aggiungi lo scheduler per gli invii automatici CSV
-    job_queue = application.job_queue
-    if job_queue:
-        job_queue.run_repeating(
-            lambda context: asyncio.create_task(scheduler_invio_automatico(context)),
-            interval=60,  # Controlla ogni minuto
-            first=10
-        )
-        print("✅ Scheduler invio automatico CSV attivato! Controllo ogni minuto")
-    
+    # Aggiungi handler
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, gestisci_messaggio_testo))
     application.add_handler(MessageHandler(filters.Document.ALL, gestisci_file_csv))
-    application.add_error_handler(error_handler)
-
-    print("🤖 Bot Interventi VVF Avviato!")
-    print("📍 Server: Render.com")
-    print("🟢 Status: ONLINE con keep-alive ultra-aggressivo")
-    print("💾 Database: SQLite3 con backup automatico")
-    print("👥 Admin configurati:", len(ADMIN_IDS))
-    print("⏰ Ping automatici ogni 5 minuti - Zero spin down! 🚀")
-    print("💾 Backup automatici ogni 25 minuti - Dati al sicuro! 🛡️")
-    print("📤 Invio automatico CSV: Super User ogni giorno 23:55, Admin domenica 23:55, Status ogni 4 mesi")
+    application.add_handler(CallbackQueryHandler(gestisci_callback))
     
+    # Avvia scheduler CSV automatico
+    application.job_queue.run_once(avvia_scheduler_csv, when=5)
+    
+    # Avvia bot
+    print("🤖 Bot avviato!")
     application.run_polling()
 
 if __name__ == '__main__':
