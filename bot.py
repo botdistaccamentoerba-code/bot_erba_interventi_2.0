@@ -301,12 +301,12 @@ def get_prossimo_numero_erba():
     return (result or 0) + 1
 
 def get_ultimi_interventi_attivi():
+    """Restituisce gli ultimi interventi (sia attivi che completati)"""
     conn = sqlite3.connect(DATABASE_NAME)
     c = conn.cursor()
-    c.execute('''SELECT id, rapporto_como, progressivo_como, numero_erba, data_uscita, indirizzo
+    c.execute('''SELECT id, rapporto_como, progressivo_como, numero_erba, data_uscita, indirizzo, data_rientro
                  FROM interventi 
-                 WHERE data_rientro IS NULL 
-                 ORDER BY data_uscita DESC LIMIT 5''')
+                 ORDER BY data_uscita DESC LIMIT 10''')
     result = c.fetchall()
     conn.close()
     return result
@@ -746,18 +746,34 @@ async def invia_csv_automatico_admin(context):
         # Crea i file CSV
         files_to_send = []
         
-        # 1. Interventi
+        # 1. Interventi con partecipanti
         interventi = get_ultimi_interventi(10000)
         if interventi:
             output = StringIO()
             writer = csv.writer(output)
             writer.writerow(['Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro', 
-                           'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
+                           'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
                            'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'])
             
             for intervento in interventi:
                 if len(intervento) >= 18:
                     id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                    
+                    # Recupera i partecipanti
+                    partecipanti_nomi = []
+                    conn = sqlite3.connect(DATABASE_NAME)
+                    c = conn.cursor()
+                    c.execute('''SELECT v.nome, v.cognome 
+                                 FROM partecipanti p 
+                                 JOIN vigili v ON p.vigile_id = v.id 
+                                 WHERE p.intervento_id = ?''', (id_int,))
+                    partecipanti = c.fetchall()
+                    conn.close()
+                    
+                    for nome, cognome in partecipanti:
+                        partecipanti_nomi.append(f"{cognome} {nome}")
+                    
+                    partecipanti_str = "; ".join(partecipanti_nomi)
                     
                     try:
                         data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
@@ -771,7 +787,7 @@ async def invia_csv_automatico_admin(context):
                     
                     writer.writerow([
                         num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
-                        mezzo_targa, mezzo_tipo, capo, autista, comune, via, 
+                        mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
                         indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
                         km_finali or '', litri_riforniti or ''
                     ])
@@ -780,6 +796,8 @@ async def invia_csv_automatico_admin(context):
             output.close()
             csv_bytes = csv_data.encode('utf-8')
             files_to_send.append(('db_interventi.csv', csv_bytes))
+        
+        # ... resto del codice per vigili, mezzi e utenti rimane uguale ...
         
         # 2. Vigili
         vigili = get_tutti_vigili()
@@ -1097,9 +1115,9 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
     
     for row_num, row in enumerate(reader, start=2):
         try:
-            if len(row) < 16:
+            if len(row) < 17:
                 error_count += 1
-                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/16)")
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/17)")
                 continue
             
             # Estrai i dati dalla riga
@@ -1132,6 +1150,32 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
                     except:
                         data_rientro = None
             
+            # Gestione partecipanti
+            partecipanti_ids = []
+            if len(row) > 9 and row[9]:  # Colonna Partecipanti
+                partecipanti_str = row[9]
+                # I partecipanti sono separati da punto e virgola: "Cognome Nome; Cognome2 Nome2"
+                partecipanti_lista = [p.strip() for p in partecipanti_str.split(';')]
+                
+                for partecipante in partecipanti_lista:
+                    if partecipante:
+                        # Cerca il vigile per nome e cognome
+                        nome_cognome = partecipante.split()
+                        if len(nome_cognome) >= 2:
+                            cognome = nome_cognome[0]
+                            nome = ' '.join(nome_cognome[1:])
+                            
+                            conn = sqlite3.connect(DATABASE_NAME)
+                            c = conn.cursor()
+                            c.execute("SELECT id FROM vigili WHERE cognome = ? AND nome = ?", (cognome, nome))
+                            vigile = c.fetchone()
+                            conn.close()
+                            
+                            if vigile:
+                                partecipanti_ids.append(vigile[0])
+                            else:
+                                print(f"⚠️ Vigile non trovato: {partecipante}")
+            
             # Preparazione dati
             dati = {
                 'numero_erba': num_erba,
@@ -1143,14 +1187,14 @@ async def gestisci_import_interventi(update: Update, context: ContextTypes.DEFAU
                 'mezzo_tipo': row[6],
                 'capopartenza': row[7],
                 'autista': row[8],
-                'comune': row[9] if len(row) > 9 else '',
-                'via': row[10] if len(row) > 10 else '',
-                'indirizzo': row[11] if len(row) > 11 else '',
-                'tipologia': row[12] if len(row) > 12 else '',
-                'cambio_personale': row[13].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 13 else False,
-                'km_finali': int(row[14]) if len(row) > 14 and row[14] and row[14].isdigit() else None,
-                'litri_riforniti': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
-                'partecipanti': []
+                'partecipanti': partecipanti_ids,
+                'comune': row[10] if len(row) > 10 else '',
+                'via': row[11] if len(row) > 11 else '',
+                'indirizzo': row[12] if len(row) > 12 else '',
+                'tipologia': row[13] if len(row) > 13 else '',
+                'cambio_personale': row[14].lower() in ['sì', 'si', '1', 'true', 'vero'] if len(row) > 14 else False,
+                'km_finali': int(row[15]) if len(row) > 15 and row[15] and row[15].isdigit() else None,
+                'litri_riforniti': int(row[16]) if len(row) > 16 and row[16] and row[16].isdigit() else None
             }
             
             inserisci_intervento(dati)
@@ -1395,13 +1439,29 @@ async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT
         
         writer.writerow([
             'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
-            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Comune', 'Via', 
+            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
             'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
         ])
         
         for intervento in interventi:
             if len(intervento) >= 18:
                 id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                
+                # Recupera i partecipanti per questo intervento
+                partecipanti_nomi = []
+                conn = sqlite3.connect(DATABASE_NAME)
+                c = conn.cursor()
+                c.execute('''SELECT v.nome, v.cognome 
+                             FROM partecipanti p 
+                             JOIN vigili v ON p.vigile_id = v.id 
+                             WHERE p.intervento_id = ?''', (id_int,))
+                partecipanti = c.fetchall()
+                conn.close()
+                
+                for nome, cognome in partecipanti:
+                    partecipanti_nomi.append(f"{cognome} {nome}")
+                
+                partecipanti_str = "; ".join(partecipanti_nomi)
                 
                 try:
                     data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
@@ -1415,7 +1475,7 @@ async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT
                 
                 writer.writerow([
                     num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
-                    mezzo_targa, mezzo_tipo, capo, autista, comune, via, 
+                    mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
                     indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
                     km_finali or '', litri_riforniti or ''
                 ])
@@ -1432,7 +1492,7 @@ async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT
             chat_id=query.message.chat_id,
             document=csv_file,
             filename=csv_file.name,
-            caption="📋 **INTERVENTI**\n\nFile CSV contenente tutti gli interventi."
+            caption="📋 **INTERVENTI**\n\nFile CSV contenente tutti gli interventi con partecipanti."
         )
         
     except Exception as e:
@@ -3084,15 +3144,18 @@ async def ultimi_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interventi = get_ultimi_interventi_attivi()
     
     if not interventi:
-        await update.message.reply_text("📋 **ULTIMI INTERVENTI**\n\nNessun intervento attivo trovato.")
+        await update.message.reply_text("📋 **ULTIMI INTERVENTI**\n\nNessun intervento trovato nel database.")
         return
     
-    messaggio = "📋 **ULTIMI INTERVENTI ATTIVI**\n\n"
+    messaggio = "📋 **ULTIMI 10 INTERVENTI**\n\n"
     for intervento in interventi:
-        id_int, rapporto, progressivo, num_erba, data_uscita, indirizzo = intervento
+        id_int, rapporto, progressivo, num_erba, data_uscita, indirizzo, data_rientro = intervento
         data = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
+        status = "🟢 IN CORSO" if data_rientro is None else "🔴 CONCLUSO"
+        
         messaggio += f"🔢 #{num_erba} - R{rapporto}/{progressivo}\n"
-        messaggio += f"📅 {data} - {indirizzo}\n\n"
+        messaggio += f"📅 {data} - {status}\n"
+        messaggio += f"📍 {indirizzo}\n\n"
     
     await update.message.reply_text(messaggio)
 
