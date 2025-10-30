@@ -1722,7 +1722,7 @@ async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DE
                 
                 writer.writerow([
                     num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
-                    meio_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
+                    mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via,  # CORRETTO: mezzo_targa
                     indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
                     km_finali or '', litri_riforniti or ''
                 ])
@@ -3264,12 +3264,34 @@ async def ultimi_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messaggio = "📋 **ULTIMI 10 INTERVENTI**\n\n"
     for intervento in interventi:
         id_int, rapporto, progressivo, num_erba, data_uscita, indirizzo, data_rientro = intervento
-        data = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
-        status = "🟢 IN CORSO" if data_rientro is None else "🔴 CONCLUSO"
         
-        messaggio += f"🔢 #{num_erba} - R{rapporto}/{progressivo}\n"
-        messaggio += f"📅 {data} - {status}\n"
-        messaggio += f"📍 {indirizzo}\n\n"
+        # Formatta le date
+        data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M')
+        data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m %H:%M') if data_rientro else "In corso"
+        
+        # Recupera altri dettagli dell'intervento
+        conn = sqlite3.connect(DATABASE_NAME)
+        c = conn.cursor()
+        c.execute('''SELECT mezzo_targa, mezzo_tipo, capopartenza, autista, tipologia 
+                     FROM interventi WHERE id = ?''', (id_int,))
+        dettagli = c.fetchone()
+        conn.close()
+        
+        if dettagli:
+            mezzo_targa, mezzo_tipo, capopartenza, autista, tipologia = dettagli
+            
+            # Trova il nome breve della tipologia
+            nome_breve_tipologia = next((display for callback, (display, full) in TIPOLOGIE_MAPPING.items() if full == tipologia), tipologia)
+            
+            messaggio += f"🔢 **#{num_erba}** - R{rapporto}/{progressivo}\n"
+            messaggio += f"📅 **Uscita:** {data_uscita_fmt}\n"
+            messaggio += f"📅 **Rientro:** {data_rientro_fmt}\n"
+            messaggio += f"🚒 **Mezzo:** {mezzo_targa} - {mezzo_tipo}\n"
+            messaggio += f"👨‍🚒 **Capo:** {capopartenza}\n"
+            messaggio += f"🚗 **Autista:** {autista}\n"
+            messaggio += f"📍 **Indirizzo:** {indirizzo}\n"
+            messaggio += f"🚨 **Tipologia:** {nome_breve_tipologia}\n"
+            messaggio += "─" * 30 + "\n\n"
     
     await update.message.reply_text(messaggio)
 
