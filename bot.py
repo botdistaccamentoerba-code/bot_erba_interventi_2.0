@@ -1403,6 +1403,7 @@ async def estrazione_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("📋 Interventi Completi", callback_data="export_interventi")],
+        [InlineKeyboardButton("📅 Interventi per Anno", callback_data="export_anno_scelta")],  # NUOVO BOTTONE
         [InlineKeyboardButton("👥 Vigili", callback_data="export_vigili")],
         [InlineKeyboardButton("🚒 Mezzi", callback_data="export_mezzi")]
     ]
@@ -1628,7 +1629,121 @@ async def esegui_export_utenti(update: Update, context: ContextTypes.DEFAULT_TYP
         
     except Exception as e:
         await query.edit_message_text(f"❌ Errore durante l'esportazione utenti: {str(e)}")
-
+async def mostra_scelta_anno_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra la selezione degli anni per l'esportazione"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    anni = get_anni_disponibili()
+    
+    if not anni:
+        await query.edit_message_text("❌ Nessun dato disponibile per l'esportazione.")
+        return
+    
+    keyboard = []
+    for anno in anni:
+        keyboard.append([InlineKeyboardButton(f"📅 {anno}", callback_data=f"export_anno_{anno}")])
+    
+    # Aggiungi opzione per tutti gli anni
+    keyboard.append([InlineKeyboardButton("📅 Tutti gli anni", callback_data="export_anno_tutti")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "📅 **ESPORTA INTERVENTI PER ANNO**\n\n"
+        "Seleziona l'anno da esportare:",
+        reply_markup=reply_markup
+    )
+async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DEFAULT_TYPE, anno: str = None):
+    """Esporta gli interventi per un anno specifico"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e):
+            return
+    
+    try:
+        if anno == "tutti":
+            interventi = get_ultimi_interventi(10000)
+            filename_suffix = "interventi_completo"
+            caption = "Esportazione completa di tutti gli interventi"
+        else:
+            interventi = get_interventi_per_anno(anno)
+            filename_suffix = f"interventi_anno_{anno}"
+            caption = f"Esportazione interventi per l'anno {anno}"
+        
+        if not interventi:
+            await query.edit_message_text("❌ Nessun intervento da esportare per i criteri selezionati.")
+            return
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        writer.writerow([
+            'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
+            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
+            'Indirizzo', 'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
+        ])
+        
+        for intervento in interventi:
+            if len(intervento) >= 18:
+                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                
+                # Recupera i partecipanti per questo intervento
+                partecipanti_nomi = []
+                conn = sqlite3.connect(DATABASE_NAME)
+                c = conn.cursor()
+                c.execute('''SELECT v.nome, v.cognome 
+                             FROM partecipanti p 
+                             JOIN vigili v ON p.vigile_id = v.id 
+                             WHERE p.intervento_id = ?''', (id_int,))
+                partecipanti = c.fetchall()
+                conn.close()
+                
+                for nome, cognome in partecipanti:
+                    partecipanti_nomi.append(f"{cognome} {nome}")
+                
+                partecipanti_str = "; ".join(partecipanti_nomi)
+                
+                try:
+                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                except:
+                    data_uscita_fmt = data_uscita
+                
+                try:
+                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+                except:
+                    data_rientro_fmt = data_rientro or ''
+                
+                writer.writerow([
+                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+                    meio_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
+                    indirizzo, tipologia or '', 'Sì' if cambio_personale else 'No', 
+                    km_finali or '', litri_riforniti or ''
+                ])
+        
+        csv_data = output.getvalue()
+        output.close()
+        
+        csv_bytes = csv_data.encode('utf-8')
+        csv_file = BytesIO(csv_bytes)
+        csv_file.name = f"{filename_suffix}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        
+        await query.edit_message_text("📤 Generazione file in corso...")
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=csv_file,
+            filename=csv_file.name,
+            caption=f"📤 **{caption}**\n\nFile CSV contenente gli interventi."
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(f"❌ Errore durante l'esportazione: {str(e)}")
 async def invia_csv_admin_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Invio manuale dei CSV agli admin"""
     query = update.callback_query
@@ -3121,24 +3236,23 @@ async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYP
     messaggio += f"🔢 **Interventi totali:** {stats['totale_interventi']}\n"
     messaggio += f"🚒 **Partenze totali:** {stats['totale_partenze']}\n\n"
     
-    # Top 5 tipologie
+    # Top 10 tipologie (invece di 5)
     if stats['tipologie']:
-        messaggio += "🚨 **TOP 5 TIPOLOGIE:**\n"
-        tipologie_ordinate = sorted(stats['tipologie'].items(), key=lambda x: x[1], reverse=True)[:5]
-        for tipologia, count in tipologie_ordinate:
+        messaggio += "🚨 **TOP 10 TIPOLOGIE:**\n"
+        tipologie_ordinate = sorted(stats['tipologie'].items(), key=lambda x: x[1], reverse=True)[:10]  # Cambiato da 5 a 10
+        for i, (tipologia, count) in enumerate(tipologie_ordinate, 1):
             nome_breve = next((display for callback, (display, full) in TIPOLOGIE_MAPPING.items() if full == tipologia), tipologia)
-            messaggio += f"• {nome_breve}: {count}\n"
+            messaggio += f"{i}. {nome_breve}: {count}\n"
         messaggio += "\n"
     
-    # Top 5 mezzi
+    # Top 5 mezzi (manteniamo 5 per i mezzi)
     if stats['mezzi']:
         messaggio += "🚒 **TOP 5 MEZZI:**\n"
         mezzi_ordinati = sorted(stats['mezzi'].items(), key=lambda x: x[1], reverse=True)[:5]
-        for mezzo, count in mezzi_ordinati:
-            messaggio += f"• {mezzo}: {count}\n"
+        for i, (mezzo, count) in enumerate(mezzi_ordinati, 1):
+            messaggio += f"{i}. {mezzo}: {count}\n"
     
     await query.edit_message_text(messaggio)
-
 # === ULTIMI INTERVENTI ===
 async def ultimi_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interventi = get_ultimi_interventi_attivi()
@@ -3466,6 +3580,11 @@ async def gestisci_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Gestione esportazione dati
     elif callback_data == "export_interventi":
         await esegui_export_interventi(update, context)
+    elif callback_data == "export_anno_scelta":
+        await mostra_scelta_anno_export(update, context)
+    elif callback_data.startswith("export_anno_"):
+        anno = callback_data.replace('export_anno_', '')
+        await esegui_export_interventi_anno(update, context, anno)
     elif callback_data == "export_vigili":
         await esegui_export_vigili(update, context)
     elif callback_data == "export_mezzi":
