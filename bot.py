@@ -3410,29 +3410,36 @@ async def gestisci_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif callback_data == "export_utenti":
         await esegui_export_utenti(update, context)
 
-# === SCHEDULER INVIO CSV AUTOMATICO ===
-def avvia_scheduler_csv(context):
-    """Avvia lo scheduler per l'invio automatico dei CSV alle 23:55"""
-    now = datetime.now()
+# === SCHEDULER INVIO CSV AUTOMATICO - VERSIONE CORRETTA ===
+def avvia_scheduler_csv_manual():
+    """Avvia lo scheduler manuale per l'invio automatico dei CSV"""
+    print("⏰ Scheduler CSV manuale avviato. Controllo ogni ora...")
     
-    # Calcola il prossimo eseguimento alle 23:55
-    next_run = now.replace(hour=23, minute=55, second=0, microsecond=0)
-    if now >= next_run:
-        next_run += timedelta(days=1)
-    
-    delay = (next_run - now).total_seconds()
-    
-    print(f"⏰ Scheduler CSV avviato. Prossimo invio: {next_run} (tra {delay:.0f} secondi)")
-    
-    # Pianifica l'invio ricorrente ogni giorno alle 23:55
-    context.job_queue.run_daily(
-        scheduler_invio_csv,
-        time=time(hour=23, minute=55),
-        days=(0, 1, 2, 3, 4, 5, 6),
-        name="invio_csv_automatico"
-    )
+    while True:
+        now = datetime.now()
+        
+        # Controlla se è l'ora programmata (23:55)
+        if now.hour == 23 and now.minute == 55:
+            print("🕐 Ora di inviare i CSV automatici agli admin...")
+            try:
+                # Crea un contesto fittizio per l'invio
+                class ContextFittizio:
+                    def __init__(self):
+                        self.bot = application.bot
+                
+                context_fittizio = ContextFittizio()
+                asyncio.run(invia_csv_automatico_admin(context_fittizio))
+                print("✅ CSV automatici inviati con successo!")
+            except Exception as e:
+                print(f"❌ Errore nell'invio automatico CSV: {e}")
+            
+            # Aspetta 65 minuti per evitare esecuzioni multiple
+            time.sleep(3900)
+        else:
+            # Controlla ogni minuto
+            time.sleep(60)
 
-# === MAIN ===
+# === MAIN CORRETTO ===
 def main():
     # Verifica integrità database
     if not check_database_integrity():
@@ -3458,14 +3465,15 @@ def main():
     # Crea application
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Avvia scheduler CSV manuale in thread separato
+    scheduler_thread = threading.Thread(target=avvia_scheduler_csv_manual, daemon=True)
+    scheduler_thread.start()
+    
     # Aggiungi handler
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, gestisci_messaggio_testo))
     application.add_handler(MessageHandler(filters.Document.ALL, gestisci_file_csv))
     application.add_handler(CallbackQueryHandler(gestisci_callback))
-    
-    # Avvia scheduler CSV automatico
-    application.job_queue.run_once(avvia_scheduler_csv, when=5)
     
     # Avvia bot
     print("🤖 Bot avviato!")
