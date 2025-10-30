@@ -3425,7 +3425,9 @@ def avvia_scheduler_csv_manual():
                 # Crea un contesto fittizio per l'invio
                 class ContextFittizio:
                     def __init__(self):
-                        self.bot = application.bot
+                        # Creiamo un bot fittizio per l'invio
+                        from telegram import Bot
+                        self.bot = Bot(token=BOT_TOKEN)
                 
                 context_fittizio = ContextFittizio()
                 asyncio.run(invia_csv_automatico_admin(context_fittizio))
@@ -3462,12 +3464,12 @@ def main():
     backup_thread = threading.Thread(target=backup_scheduler, daemon=True)
     backup_thread.start()
     
-    # Crea application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
     # Avvia scheduler CSV manuale in thread separato
     scheduler_thread = threading.Thread(target=avvia_scheduler_csv_manual, daemon=True)
     scheduler_thread.start()
+    
+    # Crea application
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Aggiungi handler
     application.add_handler(CommandHandler("start", start))
