@@ -2323,14 +2323,14 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
     
     vigili = get_vigili_attivi()
     keyboard = []
-    for vigile_id, nome, cognome, qualifica in vigili:
-        if vigile_id != context.user_data['nuovo_intervento']['capopartenza_id']:
-            keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id}")])
+    for vigile_id_a, nome, cognome, qualifica in vigili:
+        # RIMOSSO IL FILTRO: ora il capopartenza può essere anche autista
+        keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id_a}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         "🚗 **AUTISTA**\n\n"
-        "Seleziona l'autista:",
+        "Seleziona l'autista (può essere anche il capopartenza):",
         reply_markup=reply_markup
     )
 
@@ -2349,8 +2349,12 @@ async def gestisci_selezione_autista(update: Update, context: ContextTypes.DEFAU
     context.user_data['nuovo_intervento']['autista'] = f"{vigile[1]} {vigile[2]}"
     
     partecipanti_attuali = context.user_data['nuovo_intervento'].get('partecipanti', [])
+    
+    # Aggiungi il capopartenza se non è già presente
     if context.user_data['nuovo_intervento']['capopartenza_id'] not in partecipanti_attuali:
         partecipanti_attuali.append(context.user_data['nuovo_intervento']['capopartenza_id'])
+    
+    # Aggiungi l'autista se non è già presente (potrebbe essere lo stesso del capopartenza)
     if vigile_id not in partecipanti_attuali:
         partecipanti_attuali.append(vigile_id)
     
