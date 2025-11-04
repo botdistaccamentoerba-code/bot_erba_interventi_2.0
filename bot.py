@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from datetime import datetime, timedelta
 import asyncio
 import os
-from flask import Flask, jsonify
+from flask import Flask
 import threading
 import requests
 import time
@@ -729,22 +729,15 @@ def restore_database_from_gist():
         return False
 
 def backup_scheduler():
-    """Scheduler per backup automatici migliorato"""
     print("🔄 Scheduler backup avviato (ogni 25 minuti)")
-    
-    # Backup immediato all'avvio
     time.sleep(10)
     print("🔄 Backup iniziale in corso...")
     backup_database_to_gist()
     
-    # Backup ogni 25 minuti per sicurezza
     while True:
-        time.sleep(1500)  # 25 minuti
+        time.sleep(1500)
         print("🔄 Backup automatico in corso...")
-        if backup_database_to_gist():
-            print("✅ Backup completato con successo")
-        else:
-            print("❌ Backup fallito, riprovo al prossimo ciclo")
+        backup_database_to_gist()
 
 # === INVIO AUTOMATICO CSV AGLI ADMIN ===
 async def invia_csv_automatico_admin(context):
@@ -900,45 +893,36 @@ def scheduler_invio_csv(context):
 
 # === SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO ===
 def keep_alive_aggressive():
-    """Keep-alive ultra-aggressivo per evitare spin-down"""
     service_url = "https://bot-erba-interventi-2-0.onrender.com"
     urls = [
         f"{service_url}/health",
         f"{service_url}/", 
         f"{service_url}/ping",
-        f"{service_url}/status",
-        f"{service_url}/keep-alive"
+        f"{service_url}/status"
     ]
     
     print("🔄 Sistema keep-alive ULTRA-AGGRESSIVO avviato! Ping ogni 5 minuti...")
-    
-    consecutive_failures = 0
-    max_consecutive_failures = 3
     
     while True:
         success_count = 0
         for url in urls:
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=15)
                 if response.status_code == 200:
                     print(f"✅ Ping riuscito - {datetime.now().strftime('%H:%M:%S')} - {url}")
                     success_count += 1
-                    consecutive_failures = 0
                 else:
                     print(f"⚠️  Ping {url} - Status: {response.status_code}")
-                    consecutive_failures += 1
             except Exception as e:
                 print(f"❌ Errore ping {url}: {e}")
-                consecutive_failures += 1
         
         print(f"📊 Ping completati: {success_count}/{len(urls)} successi")
         
-        if consecutive_failures >= max_consecutive_failures:
-            print("🚨 CRITICO: Troppi ping falliti consecutivamente! Riavvio in 30 secondi...")
+        if success_count == 0:
+            print("🚨 CRITICO: Tutti i ping fallitti! Riavvio in 30 secondi...")
             time.sleep(30)
             os._exit(1)
         
-        # Ping ogni 5 minuti (300 secondi)
         time.sleep(300)
 
 # === FUNZIONI SERVER STATUS ===
@@ -991,48 +975,8 @@ def status():
 def keep_alive_endpoint():
     return f"KEEP-ALIVE ACTIVE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
-@app.route('/backup-now')  # ⬅️ RIMOSSO SPAZIO PRIMA DI @app.route
-def backup_now():
-    """Endpoint per forzare un backup immediato"""
-    if backup_database_to_gist():
-        return "✅ Backup eseguito con successo!"
-    else:
-        return "❌ Errore durante il backup"
-
-@app.route('/deep-health')
-def deep_health():
-    """Health check approfondito"""
-    try:
-        # Verifica database
-        conn = sqlite3.connect(DATABASE_NAME)
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-        table_count = c.fetchone()[0]
-        
-        c.execute("SELECT COUNT(*) FROM interventi")
-        interventi_count = c.fetchone()[0]
-        
-        c.execute("SELECT COUNT(*) FROM vigili")
-        vigili_count = c.fetchone()[0]
-        
-        conn.close()
-        
-        return jsonify({
-            "status": "healthy",
-            "database_tables": table_count,
-            "interventi": interventi_count,
-            "vigili": vigili_count,
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-def run_flask():  # ⬅️ SPOSTATA DOPO TUTTI GLI ENDPOINT
-    app.run(host='0.0.0.0', port=10000, debug=False, threaded=True)  # ⬅️ AGGIUNTO threaded=True
+def run_flask():
+    app.run(host='0.0.0.0', port=10000, debug=False)
 
 # === TASTIERA FISICA ===
 def crea_tastiera_fisica(user_id):
@@ -3738,74 +3682,35 @@ def avvia_scheduler_csv_manual():
         else:
             # Controlla ogni minuto
             time.sleep(60)
-# === SISTEMA DI RIPRISTINO E GESTIONE ERRORI ===
-def restore_on_startup():
-    """Tenta il ripristino del database all'avvio"""
-    if not GITHUB_TOKEN or not GIST_ID:
-        print("❌ Token o Gist ID non configurati - restore disabilitato")
-        return False
-    
-    print("🔄 Tentativo di ripristino database da backup...")
-    if restore_database_from_gist():
-        print("✅ Database ripristinato dal backup GitHub!")
-        return True
-    else:
-        print("❌ Ripristino fallito, si parte con database nuovo")
-        # Ricrea almeno le tabelle base
-        init_db()
-        return False
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gestisce gli errori non catturati"""
-    print(f"❌ Errore non gestito: {context.error}")
-    
-    try:
-        # Backup di emergenza in caso di errore
-        backup_database_to_gist()
-        
-        # Invia messaggio di errore al super admin
-        await context.bot.send_message(
-            chat_id=SUPER_ADMIN_ID,
-            text=f"🚨 Errore bot interventi: {context.error}"
-        )
-    except Exception as e:
-        print(f"❌ Errore anche nel gestore errori: {e}")
 # === MAIN CORRETTO ===
-# === MAIN ROBUSTO E STABILE ===
 def main():
-    print("🚀 Avvio Bot Interventi VVF...")
-    
-    # 🔄 RIPRISTINO AUTOMATICO ALL'AVVIO
-    if not restore_on_startup():
-        print("🔄 Inizializzazione database nuovo...")
-        init_db()
-    
-    # 🔒 VERIFICA INTEGRITÀ DATABASE
-    print("🔍 Verifica integrità database...")
+    # Verifica integrità database
     if not check_database_integrity():
-        print("🔄 Ricreazione database di emergenza...")
+        print("🚨 Database corrotto o incompleto! Ricreazione...")
         emergency_recreate_database()
     
-    # Avvia Flask in un thread separato
+    # Ripristino da backup se disponibile
+    print("🔄 Verifica backup...")
+    restore_database_from_gist()
+    
+    # Avvia server Flask in thread separato
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("✅ Flask server started on port 10000")
     
-    # 🔥 AVVIA IL SISTEMA KEEP-ALIVE ULTRA-AGGRESSIVO
+    # Avvia keep-alive aggressivo in thread separato
     keep_alive_thread = threading.Thread(target=keep_alive_aggressive, daemon=True)
     keep_alive_thread.start()
-    print("✅ Sistema keep-alive ULTRA-AGGRESSIVO attivato! Ping ogni 5 minuti")
     
-    # 🔄 AVVIA SCHEDULER BACKUP AUTOMATICO
+    # Avvia backup scheduler in thread separato
     backup_thread = threading.Thread(target=backup_scheduler, daemon=True)
     backup_thread.start()
-    print("✅ Scheduler backup attivato! Backup ogni 25 minuti")
     
-    # 📤 AVVIA SCHEDULER CSV AUTOMATICO
+    # Avvia scheduler CSV manuale in thread separato
     scheduler_thread = threading.Thread(target=avvia_scheduler_csv_manual, daemon=True)
     scheduler_thread.start()
-    print("✅ Scheduler CSV attivato! Invio automatico ogni giorno alle 23:55")
     
+    # Crea application
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Aggiungi handler
@@ -3814,17 +3719,8 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, gestisci_file_csv))
     application.add_handler(CallbackQueryHandler(gestisci_callback))
     
-    # Aggiungi gestore errori
-    application.add_error_handler(error_handler)
-
-    print("🤖 Bot Interventi VVF Avviato!")
-    print("📍 Server: Render.com")
-    print("🟢 Status: ONLINE con keep-alive ultra-aggressivo")
-    print("💾 Database: SQLite3 con backup automatico")
-    print("👥 Admin configurati:", len(ADMIN_IDS))
-    print("⏰ Ping automatici ogni 5 minuti - Zero spin down! 🚀")
-    print("💾 Backup automatici ogni 25 minuti - Dati al sicuro! 🛡️")
-    
+    # Avvia bot
+    print("🤖 Bot avviato!")
     application.run_polling()
 
 if __name__ == '__main__':
