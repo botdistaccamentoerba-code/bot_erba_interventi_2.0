@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from datetime import datetime, timedelta
 import asyncio
 import os
-from flask import Flask
+from flask import Flask, jsonify
 import threading
 import requests
 import time
@@ -1001,51 +1001,25 @@ async def invia_csv_automatico_admin(context):
     except Exception as e:
         print(f"❌ Errore generale nell'invio automatico CSV: {e}")
 
-def scheduler_invio_csv(context):
-    """Scheduler per l'invio automatico dei CSV"""
-    asyncio.create_task(invia_csv_automatico_admin(context))
-
-# === SISTEMA KEEP-ALIVE MIGLIORATO ===
-def keep_alive_migliorato():
-    """Sistema keep-alive migliorato con riconnessione automatica"""
+# === SISTEMA KEEP-ALIVE SEMPLIFICATO ===
+def keep_alive_semplificato():
+    """Sistema keep-alive semplificato per Render"""
     service_url = "https://bot-erba-interventi-2-0.onrender.com"
-    urls = [
-        f"{service_url}/health",
-        f"{service_url}/", 
-        f"{service_url}/ping",
-        f"{service_url}/status"
-    ]
     
-    print("🔄 Sistema keep-alive MIGLIORATO avviato! Ping ogni 8 minuti...")
-    
-    consecutive_failures = 0
-    max_consecutive_failures = 3
+    print("🔄 Sistema keep-alive SEMPLIFICATO avviato! Ping ogni 10 minuti...")
     
     while True:
-        success_count = 0
-        for url in urls:
-            try:
-                response = requests.get(url, timeout=20)
-                if response.status_code == 200:
-                    print(f"✅ Ping riuscito - {datetime.now().strftime('%H:%M:%S')} - {url}")
-                    success_count += 1
-                    consecutive_failures = 0
-                else:
-                    print(f"⚠️  Ping {url} - Status: {response.status_code}")
-                    consecutive_failures += 1
-            except Exception as e:
-                print(f"❌ Errore ping {url}: {e}")
-                consecutive_failures += 1
+        try:
+            response = requests.get(f"{service_url}/health", timeout=10)
+            if response.status_code == 200:
+                print(f"✅ Ping riuscito - {datetime.now().strftime('%H:%M:%S')}")
+            else:
+                print(f"⚠️  Ping - Status: {response.status_code}")
+        except Exception as e:
+            print(f"❌ Errore ping: {e}")
         
-        print(f"📊 Ping completati: {success_count}/{len(urls)} successi")
-        
-        if consecutive_failures >= max_consecutive_failures:
-            print("🚨 CRITICO: Troppi ping falliti consecutivamente! Riavvio in 60 secondi...")
-            time.sleep(60)
-            os._exit(1)
-        
-        # Aspetta 8 minuti tra i ping
-        time.sleep(480)
+        # Aspetta 10 minuti tra i ping (600 secondi)
+        time.sleep(600)
 
 # === FUNZIONI SERVER STATUS ===
 def get_system_metrics():
@@ -1495,7 +1469,7 @@ async def estrazione_dati(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("📋 Interventi Completi", callback_data="export_interventi")],
-        [InlineKeyboardButton("📅 Interventi per Anno", callback_data="export_anno_scelta")],  # NUOVO BOTTONE
+        [InlineKeyboardButton("📅 Interventi per Anno", callback_data="export_anno_scelta")],
         [InlineKeyboardButton("👥 Vigili", callback_data="export_vigili")],
         [InlineKeyboardButton("🚒 Mezzi", callback_data="export_mezzi")]
     ]
@@ -1533,7 +1507,7 @@ async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT
         writer.writerow([
             'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
             'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
-            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'  # RIMOSSO: 'Indirizzo'
+            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
         ])
         
         for intervento in interventi:
@@ -1569,7 +1543,7 @@ async def esegui_export_interventi(update: Update, context: ContextTypes.DEFAULT
                 writer.writerow([
                     num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
                     mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
-                    tipologia or '', 'Sì' if cambio_personale else 'No',  # RIMOSSO: indirizzo
+                    tipologia or '', 'Sì' if cambio_personale else 'No',
                     km_finali or '', litri_riforniti or ''
                 ])
         
@@ -1721,6 +1695,7 @@ async def esegui_export_utenti(update: Update, context: ContextTypes.DEFAULT_TYP
         
     except Exception as e:
         await query.edit_message_text(f"❌ Errore durante l'esportazione utenti: {str(e)}")
+
 async def mostra_scelta_anno_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra la selezione degli anni per l'esportazione"""
     query = update.callback_query
@@ -1750,6 +1725,7 @@ async def mostra_scelta_anno_export(update: Update, context: ContextTypes.DEFAUL
         "Seleziona l'anno da esportare:",
         reply_markup=reply_markup
     )
+
 async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DEFAULT_TYPE, anno: str = None):
     """Esporta gli interventi per un anno specifico"""
     query = update.callback_query
@@ -1779,7 +1755,7 @@ async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DE
         writer.writerow([
             'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
             'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
-            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'  # RIMOSSO: 'Indirizzo'
+            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
         ])
         
         for intervento in interventi:
@@ -1815,7 +1791,7 @@ async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DE
                 writer.writerow([
                     num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
                     mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
-                    tipologia or '', 'Sì' if cambio_personale else 'No',  # RIMOSSO: indirizzo
+                    tipologia or '', 'Sì' if cambio_personale else 'No',
                     km_finali or '', litri_riforniti or ''
                 ])
         
@@ -1836,6 +1812,7 @@ async def esegui_export_interventi_anno(update: Update, context: ContextTypes.DE
         
     except Exception as e:
         await query.edit_message_text(f"❌ Errore durante l'esportazione: {str(e)}")
+
 async def invia_csv_admin_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Invio manuale dei CSV agli admin"""
     query = update.callback_query
@@ -2072,7 +2049,6 @@ async def avvia_nuovo_intervento(update: Update, context: ContextTypes.DEFAULT_T
         "Seleziona il tipo di intervento:",
         reply_markup=reply_markup
     )
-
 
 async def gestisci_scelta_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
     query = update.callback_query
@@ -2408,7 +2384,6 @@ async def gestisci_selezione_capopartenza(update: Update, context: ContextTypes.
     vigili = get_vigili_attivi()
     keyboard = []
     for vigile_id_a, nome, cognome, qualifica in vigili:
-        # RIMOSSO IL FILTRO: ora il capopartenza può essere anche autista
         keyboard.append([InlineKeyboardButton(f"🚗 {cognome} {nome} ({qualifica})", callback_data=f"autista_{vigile_id_a}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2534,8 +2509,6 @@ async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DE
         if "Query is too old" in str(e):
             return
     
-    print(f"DEBUG: Callback ricevuto: {callback_data}")  # Debug
-    
     if callback_data.startswith("tipopage_"):
         # Navigazione pagine
         page = int(callback_data.replace('tipopage_', ''))
@@ -2553,14 +2526,9 @@ async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DE
     
     else:
         # Selezione tipologia dalla lista
-        print(f"DEBUG: Cerco tipologia per callback: {callback_data}")  # Debug
-        
-        # Verifica se il callback esiste nel mapping
         if callback_data in TIPOLOGIE_MAPPING:
             tipologia_completa = TIPOLOGIE_MAPPING[callback_data][1]
             display_name = TIPOLOGIE_MAPPING[callback_data][0]
-            
-            print(f"DEBUG: Tipologia trovata - Completa: {tipologia_completa}, Display: {display_name}")  # Debug
             
             context.user_data['nuovo_intervento']['tipologia'] = tipologia_completa
             context.user_data['fase'] = 'km_finali'
@@ -2571,7 +2539,6 @@ async def gestisci_tipologia_intervento(update: Update, context: ContextTypes.DE
                 "Inserisci i km finali del mezzo (solo numeri):"
             )
         else:
-            print(f"DEBUG: Callback NON trovato nel mapping: {callback_data}")  # Debug
             await query.edit_message_text(
                 "❌ Errore nella selezione della tipologia. Riprova.",
                 reply_markup=crea_tastiera_tipologie_paginata(0)
@@ -3063,8 +3030,6 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
         if "Query is too old" in str(e):
             return
     
-    print(f"DEBUG MODIFICA: Callback ricevuto: {callback_data}")  # Debug
-    
     if callback_data.startswith("tipopage_"):
         # Navigazione pagine
         page = int(callback_data.replace('tipopage_', ''))
@@ -3082,13 +3047,9 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
     
     else:
         # Selezione tipologia dalla lista
-        print(f"DEBUG MODIFICA: Cerco tipologia per callback: {callback_data}")  # Debug
-        
         if callback_data in TIPOLOGIE_MAPPING:
             tipologia_completa = TIPOLOGIE_MAPPING[callback_data][1]
             display_name = TIPOLOGIE_MAPPING[callback_data][0]
-            
-            print(f"DEBUG MODIFICA: Tipologia trovata - Completa: {tipologia_completa}, Display: {display_name}")  # Debug
             
             rapporto = context.user_data['modifica_intervento']['rapporto']
             progressivo = context.user_data['modifica_intervento']['progressivo']
@@ -3106,7 +3067,6 @@ async def gestisci_tipologia_modifica(update: Update, context: ContextTypes.DEFA
                 if key in context.user_data:
                     del context.user_data[key]
         else:
-            print(f"DEBUG MODIFICA: Callback NON trovato nel mapping: {callback_data}")  # Debug
             await query.edit_message_text(
                 "❌ Errore nella selezione della tipologia. Riprova.",
                 reply_markup=crea_tastiera_tipologie_paginata(0)
@@ -3350,7 +3310,7 @@ async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYP
             messaggio += f"{i}. {mezzo}: {count}\n"
         messaggio += "\n"
     
-    # INTERVENTI MENSILI - NUOVA SEZIONE
+    # INTERVENTI MENSILI
     if stats['mensili']:
         messaggio += "📅 **INTERVENTI PER MESE:**\n"
         
@@ -3375,6 +3335,7 @@ async def gestisci_statistiche(update: Update, context: ContextTypes.DEFAULT_TYP
                 messaggio += f"• {nome_mese}: 0 interventi\n"
     
     await query.edit_message_text(messaggio)
+
 # === ULTIMI INTERVENTI ===
 async def ultimi_interventi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interventi = get_ultimi_interventi_attivi()
@@ -3736,40 +3697,9 @@ async def gestisci_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif callback_data == "export_utenti":
         await esegui_export_utenti(update, context)
 
-# === SCHEDULER INVIO CSV AUTOMATICO - VERSIONE CORRETTA ===
-def avvia_scheduler_csv_manual():
-    """Avvia lo scheduler manuale per l'invio automatico dei CSV"""
-    print("⏰ Scheduler CSV manuale avviato. Controllo ogni ora...")
-    
-    while True:
-        now = datetime.now()
-        
-        # Controlla se è l'ora programmata (23:55)
-        if now.hour == 23 and now.minute == 55:
-            print("🕐 Ora di inviare i CSV automatici agli admin...")
-            try:
-                # Crea un contesto fittizio per l'invio
-                class ContextFittizio:
-                    def __init__(self):
-                        # Creiamo un bot fittizio per l'invio
-                        from telegram import Bot
-                        self.bot = Bot(token=BOT_TOKEN)
-                
-                context_fittizio = ContextFittizio()
-                asyncio.run(invia_csv_automatico_admin(context_fittizio))
-                print("✅ CSV automatici inviati con successo!")
-            except Exception as e:
-                print(f"❌ Errore nell'invio automatico CSV: {e}")
-            
-            # Aspetta 65 minuti per evitare esecuzioni multiple
-            time.sleep(3900)
-        else:
-            # Controlla ogni minuto
-            time.sleep(60)
-
-# === MAIN MIGLIORATO ===
+# === MAIN STABILIZZATO ===
 def main():
-    print("🚀 Avvio Bot Interventi VVF con sistema di robustezza...")
+    print("🚀 Avvio Bot Interventi VVF - VERSIONE STABILIZZATA...")
     
     # Fase 1: Ripristino database all'avvio
     print("🔄 Fase 1: Ripristino database...")
@@ -3782,7 +3712,7 @@ def main():
         print("❌ Integrità database non verificata - rigenerazione...")
         sistema_robustezza.rigenera_database_se_necessario()
     
-    # Fase 3: Avvio servizi in thread separati
+    # Fase 3: Avvio servizi in thread separati - SOLO QUELLI NECESSARI
     print("🔧 Fase 3: Avvio servizi di supporto...")
     
     # Avvia server Flask in thread separato
@@ -3790,15 +3720,10 @@ def main():
     flask_thread.start()
     print("✅ Server Flask avviato")
     
-    # Avvia keep-alive migliorato in thread separato
-    keep_alive_thread = threading.Thread(target=keep_alive_migliorato, daemon=True)
+    # SOLO keep-alive semplificato - rimossi altri scheduler conflittuali
+    keep_alive_thread = threading.Thread(target=keep_alive_semplificato, daemon=True)
     keep_alive_thread.start()
-    print("✅ Sistema keep-alive avviato")
-    
-    # Avvia backup scheduler in thread separato
-    backup_thread = threading.Thread(target=backup_scheduler, daemon=True)
-    backup_thread.start()
-    print("✅ Scheduler backup avviato")
+    print("✅ Sistema keep-alive semplificato avviato")
     
     # Fase 4: Creazione application bot
     print("🤖 Fase 4: Avvio bot Telegram...")
@@ -3807,7 +3732,7 @@ def main():
     try:
         application = Application.builder().token(BOT_TOKEN).build()
         
-        # Aggiungi handler (mantieni tutti gli handler originali)
+        # Aggiungi handler
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, gestisci_messaggio_testo))
         application.add_handler(MessageHandler(filters.Document.ALL, gestisci_file_csv))
@@ -3815,6 +3740,8 @@ def main():
         
         # Avvia bot con gestione errori
         print("✅ Bot avviato correttamente!")
+        print("🟢 Sistema STABILE - Pronto per l'uso!")
+        
         application.run_polling(
             drop_pending_updates=True,
             allowed_updates=Update.ALL_TYPES,
@@ -3823,9 +3750,10 @@ def main():
         
     except Exception as e:
         print(f"❌ Errore critico nell'avvio del bot: {e}")
-        print("🔄 Tentativo di riavvio in 30 secondi...")
-        time.sleep(30)
-        os._exit(1)
+        print("🔄 Tentativo di riavvio in 60 secondi...")
+        time.sleep(60)
+        # Non forziamo il riavvio con os._exit(1) per evitare loop infiniti
+        main()  # Riavvia normalmente
 
 if __name__ == '__main__':
     main()
