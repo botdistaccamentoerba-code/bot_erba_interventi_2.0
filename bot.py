@@ -1000,7 +1000,131 @@ async def invia_csv_automatico_admin(context):
         
     except Exception as e:
         print(f"❌ Errore generale nell'invio automatico CSV: {e}")
-
+# === SCHEDULER CSV MIGLIORATO ===
+def scheduler_csv_migliorato():
+    """Scheduler CSV migliorato per invii differenziati"""
+    print("⏰ Scheduler CSV migliorato avviato - Invio domenica 23:55 agli admin, ogni giorno al super admin")
+    
+    ultimo_invio_super_admin = None
+    
+    while True:
+        try:
+            now = datetime.now()
+            giorno_settimana = now.weekday()  # 0=lunedì, 6=domenica
+            ora_corrente = now.hour
+            minuto_corrente = now.minute
+            
+            # Invio al SUPER ADMIN ogni giorno alle 23:55
+            if ora_corrente == 23 and minuto_corrente == 55:
+                oggi = now.date()
+                
+                # Controlla se non abbiamo già inviato oggi al super admin
+                if ultimo_invio_super_admin != oggi:
+                    print("🦸 Invio CSV giornaliero al SUPER ADMIN...")
+                    
+                    # Prepara CSV interventi anno corrente
+                    anno_corrente = now.year
+                    interventi_anno = get_interventi_per_anno(str(anno_corrente))
+                    
+                    if interventi_anno:
+                        output = StringIO()
+                        writer = csv.writer(output)
+                        
+                        writer.writerow([
+                            'Numero_Erba', 'Rapporto_Como', 'Progressivo', 'Data_Uscita', 'Data_Rientro',
+                            'Mezzo_Targa', 'Mezzo_Tipo', 'Capopartenza', 'Autista', 'Partecipanti', 'Comune', 'Via', 
+                            'Tipologia', 'Cambio_Personale', 'Km_Finali', 'Litri_Riforniti'
+                        ])
+                        
+                        for intervento in interventi_anno:
+                            if len(intervento) >= 18:
+                                id_int, rapporto, progressivo, num_erba, data_uscita, data_rientro, mezzo_targa, mezzo_tipo, capo, autista, comune, via, indirizzo, tipologia, cambio_personale, km_finali, litri_riforniti, created_at = intervento[:18]
+                                
+                                # Recupera partecipanti
+                                partecipanti_nomi = []
+                                conn = sqlite3.connect(DATABASE_NAME)
+                                c = conn.cursor()
+                                c.execute('''SELECT v.nome, v.cognome 
+                                             FROM partecipanti p 
+                                             JOIN vigili v ON p.vigile_id = v.id 
+                                             WHERE p.intervento_id = ?''', (id_int,))
+                                partecipanti = c.fetchall()
+                                conn.close()
+                                
+                                for nome, cognome in partecipanti:
+                                    partecipanti_nomi.append(f"{cognome} {nome}")
+                                
+                                partecipanti_str = "; ".join(partecipanti_nomi)
+                                
+                                try:
+                                    data_uscita_fmt = datetime.strptime(data_uscita, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                                except:
+                                    data_uscita_fmt = data_uscita
+                                
+                                try:
+                                    data_rientro_fmt = datetime.strptime(data_rientro, '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M') if data_rientro else ''
+                                except:
+                                    data_rientro_fmt = data_rientro or ''
+                                
+                                writer.writerow([
+                                    num_erba, rapporto, progressivo, data_uscita_fmt, data_rientro_fmt,
+                                    mezzo_targa, mezzo_tipo, capo, autista, partecipanti_str, comune, via, 
+                                    tipologia or '', 'Sì' if cambio_personale else 'No',
+                                    km_finali or '', litri_riforniti or ''
+                                ])
+                        
+                        csv_data = output.getvalue()
+                        output.close()
+                        
+                        csv_bytes = csv_data.encode('utf-8')
+                        csv_file = BytesIO(csv_bytes)
+                        csv_file.name = f"interventi_{anno_corrente}_{now.strftime('%Y%m%d')}.csv"
+                        
+                        # Invia solo al SUPER ADMIN
+                        try:
+                            from telegram import Bot
+                            bot = Bot(token=BOT_TOKEN)
+                            
+                            with BytesIO(csv_bytes) as csv_file:
+                                csv_file.name = f"interventi_{anno_corrente}_{now.strftime('%Y%m%d')}.csv"
+                                bot.send_document(
+                                    chat_id=SUPER_ADMIN_ID,
+                                    document=csv_file,
+                                    filename=csv_file.name,
+                                    caption=f"📊 CSV Interventi {anno_corrente} - {now.strftime('%d/%m/%Y')}"
+                                )
+                            
+                            print(f"✅ CSV inviato al SUPER ADMIN {SUPER_ADMIN_ID}")
+                            ultimo_invio_super_admin = oggi
+                            
+                        except Exception as e:
+                            print(f"❌ Errore invio super admin: {e}")
+                    else:
+                        print("ℹ️ Nessun intervento per l'anno corrente")
+            
+            # Invio a TUTTI GLI ADMIN la DOMENICA alle 23:55
+            if giorno_settimana == 6 and ora_corrente == 23 and minuto_corrente == 55:  # 6=domenica
+                print("📅 Invio CSV domenicale a TUTTI gli ADMIN...")
+                try:
+                    # Usa la funzione esistente per inviare a tutti gli admin
+                    class ContextFittizio:
+                        def __init__(self):
+                            from telegram import Bot
+                            self.bot = Bot(token=BOT_TOKEN)
+                    
+                    context_fittizio = ContextFittizio()
+                    asyncio.run(invia_csv_automatico_admin(context_fittizio))
+                    print("✅ CSV domenicali inviati a tutti gli admin!")
+                    
+                except Exception as e:
+                    print(f"❌ Errore invio domenicale admin: {e}")
+            
+            # Aspetta 1 minuto tra i controlli
+            time.sleep(60)
+            
+        except Exception as e:
+            print(f"❌ Errore nello scheduler CSV: {e}")
+            time.sleep(300)  # Aspetta 5 minuti in caso di errore
 # === SISTEMA KEEP-ALIVE SEMPLIFICATO ===
 def keep_alive_semplificato():
     """Sistema keep-alive semplificato per Render"""
@@ -1401,7 +1525,76 @@ async def gestisci_import_mezzi(update: Update, context: ContextTypes.DEFAULT_TY
             messaggio += f"• {detail}\n"
     
     await update.message.reply_text(messaggio)
-
+async def gestisci_import_vigili(update: Update, context: ContextTypes.DEFAULT_TYPE, reader):
+    """Gestisce l'importazione dei vigili da CSV"""
+    imported_count = 0
+    updated_count = 0
+    error_count = 0
+    error_details = []
+    
+    for row_num, row in enumerate(reader, start=2):
+        try:
+            if len(row) < 9:
+                error_count += 1
+                error_details.append(f"Riga {row_num}: Numero di colonne insufficiente ({len(row)}/9)")
+                continue
+            
+            nome = row[0]
+            cognome = row[1]
+            qualifica = row[2]
+            grado_patente = row[3]
+            patente_nautica = bool(int(row[4])) if row[4] and row[4].isdigit() else False
+            saf = bool(int(row[5])) if row[5] and row[5].isdigit() else False
+            tpss = bool(int(row[6])) if row[6] and row[6].isdigit() else False
+            atp = bool(int(row[7])) if row[7] and row[7].isdigit() else False
+            attivo = bool(int(row[8])) if len(row) > 8 and row[8] and row[8].isdigit() else True
+            
+            # Cerca se il vigile esiste già
+            conn = sqlite3.connect(DATABASE_NAME)
+            c = conn.cursor()
+            c.execute("SELECT id FROM vigili WHERE nome = ? AND cognome = ?", (nome, cognome))
+            existing_vigile = c.fetchone()
+            
+            if existing_vigile:
+                # Aggiorna vigile esistente
+                vigile_id = existing_vigile[0]
+                c.execute('''UPDATE vigili 
+                            SET qualifica = ?, grado_patente_terrestre = ?, patente_nautica = ?, 
+                                saf = ?, tpss = ?, atp = ?, attivo = ?
+                            WHERE id = ?''',
+                         (qualifica, grado_patente, patente_nautica, saf, tpss, atp, attivo, vigile_id))
+                updated_count += 1
+            else:
+                # Inserisce nuovo vigile
+                c.execute('''INSERT INTO vigili 
+                            (nome, cognome, qualifica, grado_patente_terrestre, patente_nautica, saf, tpss, atp, attivo) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (nome, cognome, qualifica, grado_patente, patente_nautica, saf, tpss, atp, attivo))
+                imported_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            error_count += 1
+            error_details.append(f"Riga {row_num}: {str(e)}")
+            continue
+    
+    messaggio = f"✅ **IMPORTAZIONE VIGILI COMPLETATA**\n\n"
+    messaggio += f"📊 **Risultati:**\n"
+    messaggio += f"• ✅ Vigili importati: {imported_count}\n"
+    messaggio += f"• 🔄 Vigili aggiornati: {updated_count}\n"
+    messaggio += f"• ❌ Errori: {error_count}\n\n"
+    
+    if error_details:
+        messaggio += "📋 **Dettagli errori (prime 5):**\n"
+        for detail in error_details[:5]:
+            messaggio += f"• {detail}\n"
+        if len(error_details) > 5:
+            messaggio += f"• ... e altri {len(error_details) - 5} errori\n"
+    
+    await update.message.reply_text(messaggio)
+    
 async def gestisci_import_utenti(update: Update, context: ContextTypes.DEFAULT_TYPE, reader):
     imported_count = 0
     updated_count = 0
@@ -3724,7 +3917,10 @@ def main():
     keep_alive_thread = threading.Thread(target=keep_alive_semplificato, daemon=True)
     keep_alive_thread.start()
     print("✅ Sistema keep-alive semplificato avviato")
-    
+    # Scheduler CSV migliorato
+    csv_thread = threading.Thread(target=scheduler_csv_migliorato, daemon=True)
+    csv_thread.start()
+    print("✅ Scheduler CSV migliorato avviato")
     # Fase 4: Creazione application bot
     print("🤖 Fase 4: Avvio bot Telegram...")
     
