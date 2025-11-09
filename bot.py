@@ -1126,11 +1126,11 @@ def scheduler_csv_migliorato():
             print(f"❌ Errore nello scheduler CSV: {e}")
             time.sleep(300)  # Aspetta 5 minuti in caso di errore
 # === SISTEMA KEEP-ALIVE SEMPLIFICATO ===
-def keep_alive_semplificato():
-    """Sistema keep-alive semplificato per Render"""
+def keep_alive_aggressivo():
+    """Sistema keep-alive OGNI 5 MINUTI per Render"""
     service_url = "https://bot-erba-interventi-2-0.onrender.com"
     
-    print("🔄 Sistema keep-alive SEMPLIFICATO avviato! Ping ogni 10 minuti...")
+    print("🔄 Sistema keep-alive OGNI 5 MINUTI avviato! Ping frequenti...")
     
     while True:
         try:
@@ -1142,9 +1142,26 @@ def keep_alive_semplificato():
         except Exception as e:
             print(f"❌ Errore ping: {e}")
         
-        # Aspetta 10 minuti tra i ping (600 secondi)
-        time.sleep(600)
-
+        # ⭐⭐ MODIFICA: Aspetta 5 minuti tra i ping (300 secondi) ⭐⭐
+        time.sleep(300)
+# === AUTORIAVVIO OGNI 12 ORE ===
+def auto_restart_sicuro():
+    """Auto-riavvio programmato che preserva il database"""
+    print("🔄 Auto-restart SICURO avviato (ogni 12 ore)")
+    
+    # Attesa iniziale per permettere l'avvio completo
+    time.sleep(60)
+    
+    while True:
+        # Aspetta 12 ore (43200 secondi)
+        time.sleep(12 * 60 * 60)
+        
+        print("💾 Backup finale prima del riavvio programmato...")
+        backup_database_to_gist()  # Backup prima del riavvio
+        
+        print("🔄 Auto-riavvio programmato in corso...")
+        print("📊 Il database è al sicuro, riavvio pulito...")
+        os._exit(0)  # Riavvio pulito
 # === FUNZIONI SERVER STATUS ===
 def get_system_metrics():
     try:
@@ -3999,9 +4016,14 @@ def main():
     print("✅ Server Flask avviato")
     
     # SOLO keep-alive semplificato - rimossi altri scheduler conflittuali
-    keep_alive_thread = threading.Thread(target=keep_alive_semplificato, daemon=True)
+        # Keep-alive aggressivo (5 minuti) + auto-riavvio (12 ore)
+    keep_alive_thread = threading.Thread(target=keep_alive_aggressivo, daemon=True)
     keep_alive_thread.start()
-    print("✅ Sistema keep-alive semplificato avviato")
+    print("✅ Sistema keep-alive OGNI 5 MINUTI avviato")
+    # Auto-riavvio programmato ogni 12 ore
+    restart_thread = threading.Thread(target=auto_restart_sicuro, daemon=True)
+    restart_thread.start()
+    print("✅ Auto-restart programmato (12 ore) avviato")
     # Scheduler CSV migliorato
     csv_thread = threading.Thread(target=scheduler_csv_migliorato, daemon=True)
     csv_thread.start()
