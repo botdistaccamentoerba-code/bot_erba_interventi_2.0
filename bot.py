@@ -408,8 +408,10 @@ def restore_database_from_gist():
 
 def enhanced_restore_on_startup():
     """Ripristino automatico all'avvio con multiple tentativi"""
-    if not GITHUB_TOKEN:
-        print("❌ Token GitHub non configurato - restore disabilitato")
+    if not GITHUB_TOKEN or not GIST_ID:
+        print("❌ Token GitHub o GIST_ID non configurato - restore disabilitato")
+        print(f"🔍 GITHUB_TOKEN: {'✅ Configurato' if GITHUB_TOKEN else '❌ Mancante'}")
+        print(f"🔍 GIST_ID: {'✅ Configurato' if GIST_ID else '❌ Mancante'}")
         return False
     
     print("🔄 Tentativo di ripristino database all'avvio...")
@@ -1146,7 +1148,7 @@ def keep_alive_aggressivo():
         time.sleep(300)
 # === AUTORIAVVIO OGNI 12 ORE ===
 def auto_restart_sicuro():
-    """Auto-riavvio programmato che preserva il database"""
+    """Auto-riavvio programmato CON CONTROLLO SICUREZZA"""
     print("🔄 Auto-restart SICURO avviato (ogni 12 ore)")
     
     # Attesa iniziale per permettere l'avvio completo
@@ -1156,12 +1158,23 @@ def auto_restart_sicuro():
         # Aspetta 12 ore (43200 secondi)
         time.sleep(12 * 60 * 60)
         
-        print("💾 Backup finale prima del riavvio programmato...")
-        backup_database_to_gist()  # Backup prima del riavvio
+        print("💾 Controllo sicurezza prima del riavvio...")
         
-        print("🔄 Auto-riavvio programmato in corso...")
-        print("📊 Il database è al sicuro, riavvio pulito...")
-        os._exit(0)  # Riavvio pulito
+        # ⚠️ CONTROLLO CRITICO: Verifica se il backup funziona
+        if not GITHUB_TOKEN or not GIST_ID:
+            print("❌❌❌ ATTENZIONE: GITHUB_TOKEN o GIST_ID non configurati!")
+            print("❌❌❌ AUTO-RIAVVIO ANNULLATO per prevenire perdita dati!")
+            print("❌❌❌ Configura GITHUB_TOKEN e GIST_ID su Render")
+            continue  # Salta il riavvio
+        
+        print("💾 Backup finale prima del riavvio programmato...")
+        if backup_database_to_gist():
+            print("✅ Backup completato, riavvio sicuro...")
+            print("🔄 Auto-riavvio programmato in corso...")
+            os._exit(0)  # Riavvio pulito
+        else:
+            print("❌❌❌ BACKUP FALLITO! Riavvio annullato per sicurezza!")
+            print("❌❌❌ Controlla le credenziali GitHub")
 # === FUNZIONI SERVER STATUS ===
 def get_system_metrics():
     try:
