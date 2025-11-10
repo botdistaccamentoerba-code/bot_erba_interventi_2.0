@@ -338,12 +338,12 @@ def backup_database_to_gist():
         return False
 
 def restore_database_from_gist():
-    """Ripristino migliorato con verifica integrità"""
+    """Ripristino migliorato con verifica integrità e debug"""
     current_gist_id = os.environ.get('GIST_ID')
     if not GITHUB_TOKEN or not current_gist_id:
         print("❌ Token o Gist ID non configurati - restore disabilitato")
-        print(f"🔍 GITHUB_TOKEN: {'✅' if GITHUB_TOKEN else '❌'}")
-        print(f"🔍 GIST_ID: {'✅' if current_gist_id else '❌'}")
+        print(f"🔍 GITHUB_TOKEN: {'✅ Configurato' if GITHUB_TOKEN else '❌ Mancante'}")
+        print(f"🔍 GIST_ID: {'✅ Configurato' if current_gist_id else '❌ Mancante'}")
         return False
     
     try:
@@ -353,38 +353,27 @@ def restore_database_from_gist():
         }
         
         url = f'https://api.github.com/gists/{current_gist_id}'
-        print(f"🔍 Tentativo di accesso a: {url}")
+        print(f"🔍 Tentativo di accesso a Gist: {current_gist_id}")
+        print(f"🔍 URL: {url}")
+        
         response = requests.get(url, headers=headers)
         
-        print(f"🔍 Status Code: {response.status_code}")
-        
-        if response.status_code == 200:
-            # ... [resto del codice uguale] ...
-        else:
-            print(f"❌ Errore recupero Gist: {response.status_code} - {response.text}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Errore durante restore: {str(e)}")
-        return False
-    
-    try:
-        headers = {
-            'Authorization': f'token {GITHUB_TOKEN}',
-            'Accept': 'application/vnd.github.v3+json'
-        }
-        
-        url = f'https://api.github.com/gists/{current_gist_id}'
-        response = requests.get(url, headers=headers)
+        print(f"🔍 Status Code Ricevuto: {response.status_code}")
         
         if response.status_code == 200:
             gist_data = response.json()
+            print(f"🔍 Gist trovato: {gist_data.get('description', 'Nessuna descrizione')}")
+            
             backup_file = gist_data['files'].get('interventi_vvf_backup.json')
             
             if backup_file:
+                print("🔍 File di backup trovato nel Gist")
                 backup_content = json.loads(backup_file['content'])
                 db_base64 = backup_content['database_base64']
                 timestamp = backup_content['timestamp']
+                
+                print(f"🔍 Backup timestamp: {timestamp}")
+                print(f"🔍 Dimensione database: {backup_content['database_size']} bytes")
                 
                 db_content = base64.b64decode(db_base64)
                 
@@ -400,6 +389,8 @@ def restore_database_from_gist():
                     c.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
                     table_count = c.fetchone()[0]
                     conn.close()
+                    
+                    print(f"🔍 Tabelle trovate nel database ripristinato: {table_count}")
                     
                     if table_count >= 4:  # Almeno le tabelle principali
                         # Sostituisci il database corrente
@@ -420,14 +411,33 @@ def restore_database_from_gist():
                         os.remove(temp_db)
                     return False
             else:
-                print("❌ File di backup non trovato nel Gist")
+                print("❌ File di backup 'interventi_vvf_backup.json' non trovato nel Gist")
+                print(f"🔍 File disponibili nel Gist: {list(gist_data['files'].keys())}")
                 return False
+        elif response.status_code == 401:
+            print("❌ ERRORE 401 - Unauthorized")
+            print("🔍 Possibili cause:")
+            print("   • Token GitHub scaduto")
+            print("   • Token non ha permessi 'gist'")
+            print("   • Token revocato")
+            print(f"🔍 Response: {response.text}")
+            return False
+        elif response.status_code == 404:
+            print("❌ ERRORE 404 - Gist non trovato")
+            print("🔍 Verifica che:")
+            print("   • Il GIST_ID sia corretto")
+            print("   • Il Gist esista ancora")
+            print("   • Il Gist non sia stato eliminato")
+            return False
         else:
             print(f"❌ Errore recupero Gist: {response.status_code}")
+            print(f"🔍 Response: {response.text}")
             return False
             
     except Exception as e:
         print(f"❌ Errore durante restore: {str(e)}")
+        import traceback
+        print(f"🔍 Traceback: {traceback.format_exc()}")
         return False
 
 def enhanced_restore_on_startup():
