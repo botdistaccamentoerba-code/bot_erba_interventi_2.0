@@ -342,6 +342,30 @@ def restore_database_from_gist():
     current_gist_id = os.environ.get('GIST_ID')
     if not GITHUB_TOKEN or not current_gist_id:
         print("❌ Token o Gist ID non configurati - restore disabilitato")
+        print(f"🔍 GITHUB_TOKEN: {'✅' if GITHUB_TOKEN else '❌'}")
+        print(f"🔍 GIST_ID: {'✅' if current_gist_id else '❌'}")
+        return False
+    
+    try:
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        url = f'https://api.github.com/gists/{current_gist_id}'
+        print(f"🔍 Tentativo di accesso a: {url}")
+        response = requests.get(url, headers=headers)
+        
+        print(f"🔍 Status Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            # ... [resto del codice uguale] ...
+        else:
+            print(f"❌ Errore recupero Gist: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Errore durante restore: {str(e)}")
         return False
     
     try:
