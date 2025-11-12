@@ -1038,10 +1038,11 @@ async def invia_csv_automatico_admin(context):
         print(f"❌ Errore generale nell'invio automatico CSV: {e}")
 # === SCHEDULER CSV MIGLIORATO ===
 def scheduler_csv_migliorato():
-    """Scheduler CSV migliorato per invii differenziati"""
-    print("⏰ Scheduler CSV migliorato avviato - Invio domenica 23:55 agli admin, ogni giorno al super admin")
+    """Scheduler CSV con logiche specifiche"""
+    print("⏰ Scheduler CSV avviato - Invii differenziati attivi")
     
     ultimo_invio_super_admin = None
+    ultimo_invio_utenti = None
     
     while True:
         try:
@@ -1049,14 +1050,19 @@ def scheduler_csv_migliorato():
             giorno_settimana = now.weekday()  # 0=lunedì, 6=domenica
             ora_corrente = now.hour
             minuto_corrente = now.minute
+            giorno_mese = now.day
             
-            # Invio al SUPER ADMIN ogni giorno alle 23:55
+            # DEBUG: Log ogni ora per monitorare
+            if minuto_corrente == 0:
+                print(f"⏰ Scheduler attivo - {now.strftime('%d/%m/%Y %H:%M')} - Giorno settimana: {giorno_settimana}")
+            
+            # ⭐⭐ INVIO 1: CSV INTERVENTI ANNO CORRENTE AL SUPER ADMIN - OGNI GIORNO 23:55 ⭐⭐
             if ora_corrente == 23 and minuto_corrente == 55:
                 oggi = now.date()
                 
                 # Controlla se non abbiamo già inviato oggi al super admin
                 if ultimo_invio_super_admin != oggi:
-                    print("🦸 Invio CSV giornaliero al SUPER ADMIN...")
+                    print(f"🦸 Invio CSV interventi {now.year} al SUPER ADMIN...")
                     
                     # Prepara CSV interventi anno corrente
                     anno_corrente = now.year
@@ -1113,8 +1119,6 @@ def scheduler_csv_migliorato():
                         output.close()
                         
                         csv_bytes = csv_data.encode('utf-8')
-                        csv_file = BytesIO(csv_bytes)
-                        csv_file.name = f"interventi_{anno_corrente}_{now.strftime('%Y%m%d')}.csv"
                         
                         # Invia solo al SUPER ADMIN
                         try:
@@ -1130,7 +1134,7 @@ def scheduler_csv_migliorato():
                                     caption=f"📊 CSV Interventi {anno_corrente} - {now.strftime('%d/%m/%Y')}"
                                 )
                             
-                            print(f"✅ CSV inviato al SUPER ADMIN {SUPER_ADMIN_ID}")
+                            print(f"✅ CSV interventi {anno_corrente} inviato al SUPER ADMIN {SUPER_ADMIN_ID}")
                             ultimo_invio_super_admin = oggi
                             
                         except Exception as e:
@@ -1138,11 +1142,11 @@ def scheduler_csv_migliorato():
                     else:
                         print("ℹ️ Nessun intervento per l'anno corrente")
             
-            # Invio a TUTTI GLI ADMIN la DOMENICA alle 23:55
+            # ⭐⭐ INVIO 2: CSV COMPLETI A TUTTI GLI ADMIN - OGNI DOMENICA 23:55 ⭐⭐
             if giorno_settimana == 6 and ora_corrente == 23 and minuto_corrente == 55:  # 6=domenica
-                print("📅 Invio CSV domenicale a TUTTI gli ADMIN...")
+                print("📅 Invio CSV domenicale COMPLETO a TUTTI gli ADMIN...")
                 try:
-                    # Usa la funzione esistente per inviare a tutti gli admin
+                    # Usa la funzione esistente per inviare tutti i CSV a tutti gli admin
                     class ContextFittizio:
                         def __init__(self):
                             from telegram import Bot
@@ -1150,16 +1154,80 @@ def scheduler_csv_migliorato():
                     
                     context_fittizio = ContextFittizio()
                     asyncio.run(invia_csv_automatico_admin(context_fittizio))
-                    print("✅ CSV domenicali inviati a tutti gli admin!")
+                    print("✅ CSV domenicali completi inviati a tutti gli admin!")
                     
                 except Exception as e:
                     print(f"❌ Errore invio domenicale admin: {e}")
             
-            # Aspetta 1 minuto tra i controlli
+            # ⭐⭐ INVIO 3: CSV UTENTI - OGNI 2 MESI (1° del mese dispari) 23:55 ⭐⭐
+            if (giorno_mese == 1 and 
+                ora_corrente == 23 and 
+                minuto_corrente == 55 and 
+                now.month % 2 == 1):  # 1, 3, 5, 7, 9, 11
+                
+                # Controlla se non abbiamo già inviato questo mese
+                mese_anno = (now.month, now.year)
+                
+                if ultimo_invio_utenti != mese_anno:
+                    print(f"👤 Invio CSV utenti bimestrale ({now.strftime('%B %Y')})...")
+                    
+                    try:
+                        utenti = get_utenti_approvati()
+                        
+                        if utenti:
+                            output = StringIO()
+                            writer = csv.writer(output)
+                            writer.writerow(['user_id', 'username', 'nome', 'telefono', 'ruolo', 'data_approvazione'])
+                            
+                            for utente in utenti:
+                                user_id, username, nome, telefono, ruolo, data_approvazione = utente
+                                writer.writerow([
+                                    user_id,
+                                    username or '',
+                                    nome or '',
+                                    telefono or '',
+                                    ruolo,
+                                    data_approvazione or ''
+                                ])
+                            
+                            csv_data = output.getvalue()
+                            output.close()
+                            
+                            csv_bytes = csv_data.encode('utf-8')
+                            
+                            from telegram import Bot
+                            bot = Bot(token=BOT_TOKEN)
+                            
+                            # Invia a TUTTI gli admin
+                            for admin_id in ADMIN_IDS:
+                                try:
+                                    with BytesIO(csv_bytes) as csv_file:
+                                        csv_file.name = f"utenti_{now.strftime('%Y%m')}.csv"
+                                        bot.send_document(
+                                            chat_id=admin_id,
+                                            document=csv_file,
+                                            filename=csv_file.name,
+                                            caption=f"👤 CSV Utenti - {now.strftime('%B %Y')} (invio bimestrale)"
+                                        )
+                                    print(f"✅ CSV utenti inviato all'admin {admin_id}")
+                                    time.sleep(1)  # Pausa tra gli invii
+                                    
+                                except Exception as e:
+                                    print(f"❌ Errore invio utenti a admin {admin_id}: {e}")
+                            
+                            ultimo_invio_utenti = mese_anno
+                            print("✅ Invio bimestrale utenti completato!")
+                        else:
+                            print("ℹ️ Nessun utente da esportare")
+                            
+                    except Exception as e:
+                        print(f"❌ Errore invio bimestrale utenti: {e}")
+            
+            # Aspetta 60 secondi tra i controlli
             time.sleep(60)
             
         except Exception as e:
-            print(f"❌ Errore nello scheduler CSV: {e}")
+            print(f"❌ Errore critico nello scheduler CSV: {e}")
             time.sleep(300)  # Aspetta 5 minuti in caso di errore
 # === SISTEMA KEEP-ALIVE SEMPLIFICATO ===
 def keep_alive_aggressivo():
@@ -4071,10 +4139,13 @@ def main():
     restart_thread = threading.Thread(target=auto_restart_sicuro, daemon=True)
     restart_thread.start()
     print("✅ Auto-restart programmato (12 ore) avviato")
-    # Scheduler CSV migliorato
-    csv_thread = threading.Thread(target=scheduler_csv_migliorato, daemon=True)
-    csv_thread.start()
-    print("✅ Scheduler CSV migliorato avviato")
+    # ⭐⭐ MODIFICA CRITICA: Avvia scheduler CSV ⭐⭐
+    try:
+        csv_thread = threading.Thread(target=scheduler_csv_migliorato, daemon=True)
+        csv_thread.start()
+        print("✅ Scheduler CSV giornaliero avviato (23:55)")
+    except Exception as e:
+        print(f"❌ Errore avvio scheduler CSV: {e}")
     # Fase 4: Creazione application bot
     print("🤖 Fase 4: Avvio bot Telegram...")
     
